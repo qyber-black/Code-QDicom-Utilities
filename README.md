@@ -32,9 +32,13 @@ This code is mirrored at
 * TBC
 The mirrors are only for convenience, accessibility and backup.
 
+## People
+
+* [Frank C Langbein](https://qyber.black/xis10z), [School of Computer Science and Informatics](https://www.cardiff.ac.uk/computer-science), [Cardiff University](https://www.cardiff.ac.uk/); [langbein.org](https://langbein.org/)
+
 ## License
 
-Copyright (C) 2021, Cardiff University
+Copyright (C) 2021, Cardiff University  
 Author: Frank C Langbein <frank@langbein.org>
 
 This program is free software: you can redistribute it and/or modify
