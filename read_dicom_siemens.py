@@ -172,9 +172,6 @@ def dicom_elements(ds):
         pass
     elif de.tag in [(0x0029, 0x1020), (0x0029, 0x1120), (0x0029, 0x1220)]:
       # Access the SERIES Shadow Data - Siemens proprietary tag
-      #
-      # Need to keep this tag order, Skyra DICOM data had both 1120
-      # and 1220 tags and 1220 did not seem to contain CSA data in it.
       try:
         ptag_ser = parse_csa_header(get_tag(ds, de.tag))
         prot_ser = None
