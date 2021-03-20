@@ -145,6 +145,7 @@ def display_dicom(filename,write,cmap,gray,overlay,spectrum):
 def dicom_elements(ds):
   # Extract non-binary dicom elements; filtered
   dont = ['PixelData', 'Overlay Data', 'DataSetTrailingPadding',
+          '(7fe1, 0010)', '[CSA Data]',
           '[MedCom OOG Info]', '[MedCom History Information]' ]
   duplicate_keys = []
   contents = {}
@@ -190,7 +191,7 @@ def dicom_elements(ds):
       except ValueError:
         pass
     elif not key in dont:
-      ##print(key, de.value)
+      ##print(key+":"+str(de.value))
       if de.VR == "SQ":
         value = []
         for si in de.value:
@@ -205,8 +206,7 @@ def dicom_elements(ds):
         else:
           value = conv_val(de.value)
     else:
-      #print(key, de.tag, de.value)
-      #print(de.value)
+      ##print(key, de.tag, de.value)
       pass
     if value is not None and value != [] and value != {}:
       if key in contents:
