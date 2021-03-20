@@ -25,7 +25,7 @@ The scripts are tested with python3.8 and later. You need the following packages
 
 ## Locations
 
-The code is developed and maintained on (qyber\\black)[https://qyber.black]
+The code is developed and maintained on [qyber\\black](https://qyber.black)
 at https://qyber.black/pca/code-qdicom-utilities
 
 This code is mirrored at
