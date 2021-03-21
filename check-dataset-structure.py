@@ -558,8 +558,9 @@ def check_dicoms(dir, patient, session, scan, indent, fix, verbose):
               print(("%s  " + str(key) + ": " + str(rec[key]) + " != "
                      + str(ref_rec[key])) % indent)
         else:
-          print(("%s* %s: " + colors.WARN + "warn: extra scan record in slice"
-                + colors.END + " - " + key) % (indent,f))
+          if verbose > 0:
+            print(("%s* %s: " + colors.WARN + "warn: extra scan record in slice"
+                  + colors.END + " - " + key) % (indent,f))
           ref_rec[key] = rec[key]
     if 'InstanceNumber' in info:
       if instance == None:
