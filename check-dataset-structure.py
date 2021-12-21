@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 #
-# check-dataset-structure.py
+# check-dataset-structure.py - QDicom Utilities
+#
+# SPDX-FileCopyrightText: Copyright (C) 2021 Frank C Langbein <frank@langbein.org>, Cardiff University
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
 # Check and possibly fix file system structure of a dicom dataset.
 #
 # This is quite specific to the Qyber\black archive structure, but
@@ -13,11 +17,6 @@
 # SCAN a zero-filled 4-digit number and DICOM_FILE has the filename
 # PATIENT-SESSION-SCAN.IMA. It's mostly for Siemens dicom files.
 #
-# SPDX-License-Identifier: AGPL-3.0-or-later
-#
-# Copyright (C) 2021, Cardiff University
-# Author: Frank C Langbein <frank@langbein.org>
-
 # Usage example:
 #
 # ./check-dataset-structure.py -v scans

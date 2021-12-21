@@ -1,3 +1,7 @@
+# requirements.txt - QDicom Utilities
+#
+# SPDX-FileCopyrightText: Copyright (C) 2021 Frank C Langbein <frank@langbein.org>, Cardiff University
+# SPDX-License-Identifier: AGPL-3.0-or-later
 pydicom==2.1.2
 numpy==1.19.5
 matplotlib==3.3.4

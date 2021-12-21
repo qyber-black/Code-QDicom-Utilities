@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 #
-# read_dicom_siemens.py
-# Display/write DICOM info/image/spectroscopy, specifically for Siemens IMA files.
-# Read dicom functions for import.
+# read_dicom_siemens.py - QDicom Utilities
 #
+# SPDX-FileCopyrightText: Copyright (C) 2021 Frank C Langbein <frank@langbein.org>, Cardiff University
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
-# Copyright (C) 2020-2021, Cardiff University
-# Author: Frank C Langbein <frank@langbein.org>
+# Display/write DICOM info/image/spectroscopy, specifically for Siemens IMA files.
+# Read dicom functions for import.
 
 import os
 import sys
