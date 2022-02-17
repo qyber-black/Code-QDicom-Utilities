@@ -376,7 +376,7 @@ def check_scan(dir, patient, session, scan, indent, fix, verbose):
               elif fss[1] == "SR":
                 ok = True
           elif len(fs) == 3:
-            if fs[2][-23:] == "_scan_annotations.json":
+            if fs[2][-22:] == "_scan_annotations.json":
               ok = True
           if not ok:
             err += 1
