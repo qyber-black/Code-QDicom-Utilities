@@ -371,7 +371,7 @@ def check_scan(dir, patient, session, scan, indent, fix, verbose):
                 except:
                   pass
               elif fss[1] == "json":
-                if fss[0][-17:] == "_annotations.json":
+                if fss[0][-12:] == "_annotations":
                   ok = True
               elif fss[1] == "SR":
                 ok = True
@@ -380,7 +380,7 @@ def check_scan(dir, patient, session, scan, indent, fix, verbose):
               ok = True
           if not ok:
             err += 1
-            print(("%s* %s/%s/%s%s: " + colors.FAIL + "fail: broken filename" + colors.END)
+            print(("%s* %s/%s/%s/%s: " + colors.FAIL + "fail: broken filename" + colors.END)
                   % (indent,patient,session,scan,f))
         else:
           err += 1
@@ -426,9 +426,7 @@ def check_dicoms(dir, patient, session, scan, indent, fix, verbose):
     if os.path.isdir(path):
       dirs.append(fn)
     elif os.path.isfile(path):
-      if fn[-3:] == ".SR":
-        pass
-      else:
+      if fn[-4:] == ".IMA":
         files.append(fn)
     else:
       raise Exception("Unknown file type: %s" % fnp)
