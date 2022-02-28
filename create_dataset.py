@@ -192,6 +192,7 @@ def process_patient(data, patient, ps, sel_js, density, out, force, verbose):
       compute_slice(out_dir, sel_js['compute'],
                     ref_slice[1], ref_slice[2], ref_slice[3], sel_js['width'], sel_js['height'], int(ref_slice[4]),
                     ref_transf_slice2patient, ref_size, density,
+                    stacks[p]['info']['BitsStored'],
                     force, verbose)
     if 'tags' in sel_js:
       generate_masks(out_dir, stacks,
@@ -332,7 +333,7 @@ def get_stacks(patient_base, protocols, ref_scan, verbose):
       # Find protocol
       sns = sorted(glob.glob(os.path.join(path,'*.IMA')))
       if len(sns) > 0:
-        slice = sns[0].split("-")[3].split(".")[0]
+        slice = os.path.basename(sns[0]).split("-")[3].split(".")[0]
         dicom, info, transf_stack2patient, _ = get_slice(path, slice, 0)
         first_slice = int(slice)
         if '[CSA Series Header Info]' in info and 'protocol' in info['[CSA Series Header Info]'] and \
@@ -380,7 +381,7 @@ def get_stacks(patient_base, protocols, ref_scan, verbose):
             max_diff = np.linalg.norm(0.25 * Z0)
             X1 = X0 + Z0
             for k in range(1,len(sns)):
-              slice = sns[k].split("-")[3].split(".")[0]
+              slice = os.path.basename(sns[k]).split("-")[3].split(".")[0]
               dicom, _, transf, _ = get_slice(path, slice, 0)
               # Check if step size is consistent with slice numbers
               # We assume dwi is OK (as pos reset between different b values makes it harder to check and should not be necessary really; just for safety)
@@ -544,8 +545,11 @@ def extract_slice(stack, transf_stack2patient, width, height, ref_transf_slice2p
   return slice
 
 def compute_slice(output, compute, patient, session, scan, width, height, ref_slice_num,
-                  ref_transf_slice2patient, ref_size, density, force, verbose):
+                  ref_transf_slice2patient, ref_size, density, bits, force, verbose):
   # Compute slices from those extracted (from dwi data) - ADC and high b-value DWI
+
+  # Max value from number of bits
+  max_value = np.float64(2**bits-1)
 
   # Load DWI data
   dwi_files = sorted(glob.glob(os.path.join(output,f"{patient}-{session}-{scan}-{ref_slice_num:04d}-dwi-*.npy")))
@@ -584,7 +588,8 @@ def compute_slice(output, compute, patient, session, scan, width, height, ref_sl
     for c in range(0,cs):
       # Collect DWI values across B values for slices
       # Scale [0,1] dwi values to 12bit, for consistency.
-      S = np.log(np.asarray([dwi[b][r,c] for b in bfield_idx], dtype=np.float64) * (2**12-1))
+      with np.errstate(divide='ignore'):
+        S = np.log(np.asarray([dwi[b][r,c] for b in bfield_idx], dtype=np.float64) * max_value)
       # Linear ADC fit: ln(S(b)) = ln(S(0)) - b ADC
       fitl, _, frank, _, _ = np.polyfit(bfield_srt,S,1,full=True)
       if frank == 2 and fitl[0] < 0:
@@ -607,15 +612,26 @@ def compute_slice(output, compute, patient, session, scan, width, height, ref_sl
           for k in dwicq:
             dwicq[k][r,c] = np.exp(np.polyval(fitq,int(k)))
   if 'adc' in locals():
+    # Normalise according to dicom range
+    adc /= max_value
+    adcr /= max_value
     save_slice(output, f"{patient}-{session}-{scan}-{ref_slice_num:04d}-adc", adc, force, verbose)
     save_slice(output, f"{patient}-{session}-{scan}-{ref_slice_num:04d}-adc_r", adcr, force, verbose)
   for k in dwic:
+    # Normalise according to dicom range
+    dwic[k] /= max_value
     save_slice(output, f"{patient}-{session}-{scan}-{ref_slice_num:04d}-dwi_c-{int(k):04d}", dwic[k], force, verbose)
   if 'adcq' in locals():
+    # Normalise according to dicom range
+    adcq /= max_value
+    kurtosis /= max_value
+    adcqr /= max_value
     save_slice(output, f"{patient}-{session}-{scan}-{ref_slice_num:04d}-adc_q", adcq, force, verbose)
     save_slice(output, f"{patient}-{session}-{scan}-{ref_slice_num:04d}-adc_qk", kurtosis, force, verbose)
     save_slice(output, f"{patient}-{session}-{scan}-{ref_slice_num:04d}-adc_qr", adcqr, force, verbose)
   for k in dwicq:
+    # Normalise according to dicom range
+    dwicq[k] /= max_value
     save_slice(output, f"{patient}-{session}-{scan}-{ref_slice_num:04d}-dwi_qc-{int(k):04d}", dwicq[k], force, verbose)
 
 def generate_masks(output, stacks, tags, patient_base,
