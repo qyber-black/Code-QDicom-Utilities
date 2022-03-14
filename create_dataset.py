@@ -59,7 +59,9 @@
 #              adc_q    - quadratic adc match with kurtosis and residual
 #              dwi_c-X  - high B-field computed dwi for B=X for linear adc
 #              dwi_cq-X - high B-field computed dwi for B=X for quadratic adc
-# * tags: produces masks for specified tags
+# * tags: produces masks for specified tags; can specify extended tag with ":" such
+#         as "suspicious:ext" for exact match or just a tag with a ":" extension,
+#         which matches all tags, independent of the extension.
 
 import os
 import argparse
@@ -651,12 +653,20 @@ def generate_masks(output, stacks, tags, patient_base,
     f.close()
     if 'polygons' in anno:
       for p in anno['polygons']:
-        if p['tag'].lower() in tags:
-          if not p['tag'] in rois:
-            rois[p['tag'].lower()] = []
-          rois[p['tag'].lower()].append({"x":p['x'], "y":p['y'], "slice":p['slice']})
-          if verbose > 0:
-            print(f"    {p['tag']} - {p['slice']}")
+        for t in tags:
+          if ":" in t:
+            # If : is in tag, we want extended tag (id of annotator, etc)
+            # so an exact match.
+            ptag = p['tag'].lower()
+          else:
+            # If : is not in tag, we accept any tag matching part before ":" (if there is)
+            ptag = p['tag'].lower().split(":")[0]
+          if ptag == t:
+            if not ptag in rois:
+              rois[ptag] = []
+            rois[ptag].append({"x":p['x'], "y":p['y'], "slice":p['slice']})
+            if verbose > 0:
+              print(f"    {ptag} - {p['slice']}")
 
   ref_inv = np.linalg.inv(ref_transf_slice2patient)
 
