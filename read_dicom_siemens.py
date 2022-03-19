@@ -56,7 +56,7 @@ def process_dir(dir,write,cmap,gray,overaly,spectrum):
     p = os.path.join(dir,d)
     if os.path.isdir(p):
       process_dir(p,write,cmap,gray,overaly,spectrum)
-    elif d.lower().endswith('.ima'):
+    elif d.lower().endswith('.ima') or d.lower().endswith('.dcm'):
       display_dicom(p,write,cmap,gray,overaly,spectrum)
 
 def pretty_dict(d, indent=0):
@@ -73,9 +73,13 @@ def display_dicom(filename,write,cmap,gray,overlay,spectrum):
   print("Processing %s" % filename)
   dicom, result = read_dicom(filename)
   if write:
-    out = open(os.path.splitext(filename)[0]+'.json',"w")
+    out = open(os.path.splitext(filename)[0]+".json",'w')
   else:
     out = sys.stdout
+  # Check if values are OK.
+  #for f in result:
+  #  print(f, result[f])
+  #  print(json.dumps(result[f], indent=4, sort_keys=True))
   print(json.dumps(result, indent=4, sort_keys=True), file=out)
   if write:
     out.close()
@@ -186,6 +190,12 @@ def dicom_elements(ds):
         value = { "protocol": prot_ser, "shadow": ptag_ser }
       except ValueError:
         pass
+    elif key in ["[TablePositionOrigin]", "[ImaAbsTablePosition]" ]:
+      if value is not None:
+        value = struct.unpack('<'+('i'*(len(de.value)//4)), de.value)
+    elif key in ["[SlicePosition_PCS]", "[BandwidthPerPixelPhaseEncode]", "[DiffusionGradientDirection]", "[B_matrix]"]:
+      if value is not None:
+        value = struct.unpack('d'*(len(de.value)//8), de.value)
     elif not key in dont:
       ##print(key+":"+str(de.value))
       if de.VR == "SQ":
@@ -285,14 +295,19 @@ def conv_val(v):
   try:
     num = int(v)
     return num
-  except ValueError:
-    try:
-      num = float(v)
-      return num
-    except ValueError:
-      return v
-  except TypeError:
-    return v
+  except:
+    pass
+  try:
+    num = float(v)
+    return num
+  except:
+    pass
+  try:
+    str = v.decode('utf-8').strip()
+    return str
+  except:
+    pass
+  return v
 
 def parse_csa_header(tag, little_endian = True):
   # Parse Siemens CSA header info

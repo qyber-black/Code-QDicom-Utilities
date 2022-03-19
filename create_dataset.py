@@ -16,6 +16,8 @@
 #
 # Selection json file format:
 # {
+#    "dataset": "DATASET",
+#
 #    "slices": [
 #        [ "PATIENT", "SESSION", "SCAN", "SLICE" ],
 #        ...
@@ -29,12 +31,16 @@
 #     "tags": [ "TAG1", "TAG2", ... ]
 # }
 #
+# dataset: reference for dataset sourcer (swansea-pca, prostatex supported;
+#          most info for prostatex comes from their csv files)
+#
+# Dataset generated for swansea-pca according to:
+#
 # slices: array of selected 2D slices for data set; each slice is specified by
 #         patient-id, session-id, protocol, scan, slice
 #         (search in dicom data repository path; script finds the group;
 #         paitent-id assumed to be unique)
 #
-# Dataset generated according to:
 # * width,height: resolution
 #                 Rescales the data to this size from original slice size.
 #                 Should match resolution of original as far as possible (obvouisly
@@ -62,6 +68,13 @@
 # * tags: produces masks for specified tags; can specify extended tag with ":" such
 #         as "suspicious:ext" for exact match or just a tag with a ":" extension,
 #         which matches all tags, independent of the extension.
+#
+# Dataset generated for prostatex according to:
+#
+# * width,height: resolution
+#                 Rescales the data to this size from original slice size.
+#                 Should match resolution of original as far as possible (obvouisly
+#                 that is not doable if protocols have different resolutions).
 
 import os
 import argparse
@@ -98,14 +111,21 @@ def main():
     exit(1)
 
   # Load selection and input/output specification
-  density = 20 # density default (should be integer)
   f = open(args.select)
   sel_js = json.loads(f.read())
-  if "density" in sel_js:
-    density = sel_js(int(density)) # Overwrite default
+  if "density" not in sel_js:
+    sel_js["density"] = 20 # density default (should be integer)
   f.close()
 
-  # Collect slices for the same patient-session
+  if sel_js["dataset"] == "swansea-pca":
+    swansea_pca(args, sel_js)
+  elif sel_js["dataset"] == "prostatex":
+    prostatex(args, sel_js)
+  else:
+    raise Exception(f"Unkown daataset {sel_js['dataset']}")
+
+def swansea_pca(args, sel_js):
+  # Collect slices for the same patient-session for swansea-pca
   patient = {}
   for slice in sel_js['slices']:
     ps = slice[0] + "-" + slice[1]
@@ -125,6 +145,7 @@ def main():
     patient[ps].append([group,slice[0],slice[1],slice[2],slice[3]])
 
   # Process all patient-session collections
+  density = int(sel_js["density"])
   if args.disable_parallel:
     for ps in patient:
       process_patient(args.data, patient[ps],ps,sel_js,density,args.out,args.force,args.verbose)
@@ -134,6 +155,12 @@ def main():
               (joblib.delayed(process_patient)(args.data,patient[ps],ps,sel_js,
                                                density,args.out,args.force,-1)
                 for ps in patient)
+
+def prostatex(args, sel_js):
+  # Collect slices for the same patient-session for prostatex
+  pass
+  # FIXME
+
 
 def process_patient(data, patient, ps, sel_js, density, out, force, verbose):
   # Process all slices for the patient
