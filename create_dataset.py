@@ -59,7 +59,7 @@
 #                 Rescales the data to this size from original slice size.
 #                 Should match resolution of original as far as possible (obvouisly
 #                 that is not doable if protocols have different resolutions).
-# * density: sampling densities in samples per mm per axis, used to resample stacks, if needed; default 20.
+# * density: sampling densities in samples per mm per axis, used to resample stacks, if needed; default 25.
 #            We resample slices to the reference slice via the patient coordinate space (and registration
 #            if requested). Sampling is done via intersecting the reference slice voxel mapped onto the
 #            stack and sampling the overlap per voxel in the reference slice. The voxel value is the
@@ -104,6 +104,7 @@ import numpy as np
 import sobol_seq
 from PIL import Image, ImageDraw
 from skimage.draw import polygon, line
+import scipy.ndimage as ndi
 
 from read_dicom_siemens import read_dicom
 
@@ -134,7 +135,7 @@ def main():
   f = open(args.select)
   sel_js = json.loads(f.read())
   if "density" not in sel_js:
-    sel_js["density"] = 20 # density default (should be integer)
+    sel_js["density"] = 25 # density default (should be integer)
   f.close()
 
   if sel_js["dataset"] == "swansea-pca":
@@ -922,9 +923,6 @@ def prostatex(args, sel_js):
   # data and do not compute them (even if DWI is available); some patients in the
   # dataset do not have these available (is reported as missing, if verbose).
   #
-  # High-bfield computed DWI are assumed to be 1400 (dwi_c-1400); a warning is
-  # issued if the dicom file says something else.
-  #
   # If protocol types are duplicated, we usually use the first scan (if we know about
   # it for the protocol; see "if more folders, use first match" below).
   import csv
@@ -957,8 +955,9 @@ def prostatex(args, sel_js):
         del patient[p[0]]
 
     # Get images info
-    slices = {} # slices[PATIENT][FID] = { NAME: [i,j,k] }
+    slices = {} # slices[PATIENT][FID][NAME] = [i,j,k]
     world_matrix = {} # world_matrix[PATIENT][PROTOCOL][FID] = Matrix
+    ser_num = {} # world_matrix[PATIENT][PROTOCOL][FID] = ser_num
     pos = {} # pos[PATIENT][PROTOCOL][FID] = pos of FID
     with open(os.path.join(args.data, 'Lesions', f'ProstateX-Images-{group}.csv')) as csvfile:
       if args.verbose > 0:
@@ -979,22 +978,31 @@ def prostatex(args, sel_js):
               slices[row[0]] = { }
             if row[2] not in slices[row[0]]:
               slices[row[0]][row[2]] = {}
-            slices[row[0]][row[2]][row[1]] = [int(l) for l in row[5].split(' ')]
             if row[0] not in world_matrix:
               world_matrix[row[0]] = {}
               pos[row[0]] = {}
+              ser_num[row[0]] = {}
             if protocol_name not in world_matrix[row[0]]:
               world_matrix[row[0]][protocol_name] = {}
               pos[row[0]][protocol_name] = {}
+              ser_num[row[0]][protocol_name] = {}
             row[2] = int(row[2])
-            world_matrix[row[0]][protocol_name][row[2]] = np.array(row[4].split(",")).astype(np.float64).reshape(4,4)
-            pos[row[0]][protocol_name][row[2]] = np.array((row[3].strip()+" 1").split(" ")).astype(np.float64)
-            # Testing matrix/pos/ijk relation
-            ijk = np.array((row[5]+" 1").split(" ")).astype(np.float64)
-            pos_ijk = np.floor(np.linalg.inv(world_matrix[row[0]][protocol_name][row[2]]) @ \
-                               pos[row[0]][protocol_name][row[2]] + 0.5)
-            if np.linalg.norm(ijk-pos_ijk) > 0.0:
-              raise Exception(f"{row[0]},{protocol_name},{row[2]} - pos to ijk does not match ijk")
+            row[11] = int(row[11])
+            if row[2] in world_matrix[row[0]][protocol_name] and \
+               ser_num[row[0]][protocol_name][row[2]] < row[11]:
+              # We use the first matching protocol, so anything later is ignored
+              pass
+            else:
+              slices[row[0]][str(row[2])][row[1]] = [int(l) for l in row[5].split(' ')]
+              world_matrix[row[0]][protocol_name][row[2]] = np.array(row[4].split(",")).astype(np.float64).reshape(4,4)
+              ser_num[row[0]][protocol_name][row[2]] = row[11]
+              pos[row[0]][protocol_name][row[2]] = np.array((row[3].strip()+" 1").split(" ")).astype(np.float64)
+              # Testing matrix/pos/ijk relation
+              ijk = np.array((row[5]+" 1").split(" ")).astype(np.float64)
+              pos_ijk = np.floor(np.linalg.inv(world_matrix[row[0]][protocol_name][row[2]]) @ \
+                                 pos[row[0]][protocol_name][row[2]] + 0.5)
+              if np.linalg.norm(ijk-pos_ijk) > 0.0:
+                raise Exception(f"{row[0]},{protocol_name},{row[2]} - pos to ijk does not match ijk")
           else:
             if args.verbose > 5:
               print(f"  Skipping protocol {row[1]} for {row[0]}")
@@ -1011,9 +1019,9 @@ def prostatex(args, sel_js):
         print(f"{p}:")
       for f in patient[p]:
         found_slices = {}
-        for name in slices[p][str(f)]:
+        for sname in slices[p][str(f)]:
           if args.verbose > 2:
-            print(f"    FID {f} - {name}: {slices[p][str(f)][name]}")
+            print(f"    FID {f} - {sname}: {slices[p][str(f)][sname]}")
           # Find the stack folder
           path = os.path.join(args.data, group, p)
           # Assume each patient has one directory with the scans (we use the first one found and warn if there are more)
@@ -1025,16 +1033,21 @@ def prostatex(args, sel_js):
             raise Exception(f"Patient {p} has no folder with scans")
           elif len(scan_dir) > 1:
             timestamps = [(l,"-".join(reversed(d.split("-")[0:3]))) for l,d in enumerate(scan_dir)]
-            print(timestamps)
             timestamps = sorted(timestamps, key=lambda d: tuple(map(int, d[1].split('-'))))
             scan_dir = scan_dir[timestamps[0][0]]
             print(f"Warning: multiple folders for patient {p}; using {scan_dir}")
           else:
             scan_dir = scan_dir[0]
 
+          found = False
+          for pm in sel_js['protocol_map']:
+            if sname == pm[0]:
+              folder_ser_num = ser_num[p][pm[1]][f]
+              found = True
+          if not found:
+            raise Exception(f"Protrocol {sname} not found in protocol_map")
           path = os.path.join(path,scan_dir)
-          sname = name.replace("_","").rstrip("0123456789")
-          folder = None
+          folder =None
           folder_num = None
           for dir in os.listdir(path):
             prot = "".join(dir.split("-")[1:]).replace(" ","").split(".")[0].rstrip("01234567890")
@@ -1043,8 +1056,8 @@ def prostatex(args, sel_js):
               if folder is not None:
                 if prot == 't2tsetra' or prot == 'ep2ddifftraDYNDISTADC' or \
                    prot == 'ep2ddifftraDYNDISTCALCBVAL' or prot == 'ep2ddifftra2x2Noise0FSDYNDISTADC' or \
-                   prot == 'ep2ddifftra2x2Noise0FSDYNDISTCALCBVAL': # if more folders, use first match
-                  if num < folder_num:
+                   prot == 'ep2ddifftra2x2Noise0FSDYNDISTCALCBVAL': # if more folders, use ser_num
+                  if num == folder_ser_num:
                     folder = os.path.join(path,dir)
                     folder_num = num
                 else: # Unknown protocol for which there is more than one folder
@@ -1052,23 +1065,27 @@ def prostatex(args, sel_js):
               else:
                 folder = os.path.join(path,dir)
                 folder_num = num
+          if folder is not None and folder_num != folder_ser_num:
+            raise Exception(f"For {p} we found dicom serial {folder_num}, but requested {folder_ser_num}")
           if folder is None:
-            print(f"Warning: {name} stack for patient {p} not found")
+            print(f"Warning: {sname} stack for patient {p} not found")
           else:
             # Find slice file
             # - while files may not be in order of stack, the numbering is concescutive and the
             #   counting starts from 0, so a slice number requested for which there is not file
             #   should mean the slice is not in the data, whatever the order.
-            slice_file = os.path.join(folder,f"{slices[p][str(f)][name][-1]:06d}.dcm")
+            slice_file = os.path.join(folder,f"{slices[p][str(f)][sname][-1]:06d}.dcm")
             if os.path.isfile(slice_file):
               # Not all slices specified seem to exist
               found = False
               for pm in sel_js['protocol_map']:
                 if sname == pm[0]:
                   found = True
-                  found_slices[pm[1]] = (slice_file, slices[p][str(f)][name], name)
+                  if ser_num[p][pm[1]][f] != folder_num:
+                    raise Exception(f"Stack number {folder_num} does not match dicom serial {ser_num[p][pm[1]][f]} for {p}, {pm[1]}, finding {f}")
+                  found_slices[pm[1]] = (slice_file, slices[p][str(f)][sname], ser_num[p][pm[1]])
               if not found:
-                raise Exception(f"Did not find slice for {name}/{sname}")
+                raise Exception(f"Did not find slice for {sname}")
             else:
               print(f"Warning: slice {slice_file} is missing")
         # Check if finding has all protocols
@@ -1085,7 +1102,7 @@ def prostatex(args, sel_js):
             print(f"  FID {f} - incomplete! Missing: {', '.join([m for m in missing])}")
         else:
           if args.verbose > 0:
-            print(f"  FID {f} - " + (', '.join(found+(str(found_slices[found][1])) for found in found_slices.keys())))
+            print(f"  FID {f} - " + (', '.join(found+"-"+(str(found_slices[found][2][f])+str(found_slices[found][1])) for found in found_slices.keys())))
           if p not in samples:
             samples[p] = {}
           samples[p][f] = found_slices
@@ -1171,6 +1188,7 @@ def prostatex_slices(patient, samples_patient, ref_protocol, world_matrix_patien
       for finding in samples_patient:
         if finding not in used_findings:
           pp = np.linalg.inv(world_matrix_patient[ref_protocol][finding]) @ pos_patient[ref_protocol][finding]
+          pp = pp[0:3]/pp[3]
           if np.floor(pp[2]+0.5) == ref_slice_num:
             used_findings.append(finding) # Mark those findings used to avoid replicating slices
             tag = label_patient[str(finding)]
@@ -1189,7 +1207,110 @@ def prostatex_slices(patient, samples_patient, ref_protocol, world_matrix_patien
         if np.sum(mask_slice) > 0: # Only store if we have any region at all
           save_slice(os.path.join(out,pid), f"{pid}-{group}-{ref_slice_scan}-{ref_slice_num:04d}-{tag}",
                      mask_slice, force, check, verbose)
-      # FIXME: nii masks
+      # Masks for ProstateX Masks repo
+      import nibabel as  nib
+      dir = os.path.dirname(samples_patient[finding][ref_protocol][0])
+      while not os.path.isdir(os.path.join(dir,"PROSTATEx_masks")):
+        dir = os.path.dirname(dir)
+        if len(dir) < 2:
+          raise Exception("PROSTATEx_masks not found")
+      dir = os.path.join(dir,"PROSTATEx_masks","Files")
+      if ref_protocol == "t2-tra":
+        prot_dir = "T2"
+      elif ref_protocol == "adc":
+        prot_dir = "ADC"
+      else:
+        print(f"Warning: no ProstateX masks for reference protocol {ref_protocol}")
+        return
+      # Lesion ROIs for all findings
+      rois = {}
+      used_findings = []
+      for finding in samples_patient:
+        if finding not in used_findings:
+          pp = np.linalg.inv(world_matrix_patient[ref_protocol][finding]) @ pos_patient[ref_protocol][finding]
+          if np.floor(pp[2]+0.5) == ref_slice_num:
+            used_findings.append(finding) # Mark those findings used to avoid replicating slices
+            tag = label_patient[str(finding)].replace("_sq","")
+            if tag not in rois:
+              rois[tag] = []
+            pattern = "ProstateX-"+pid[-4:]+"-Finding"+str(finding)+"-*_ROI.nii.gz"
+            path = os.path.join(dir,"lesions","Masks",prot_dir,pattern)
+            mask_files = glob.glob(path)
+            if len(mask_files) == 0:
+              print(f"Warning, ROI for {pattern} not found, skipping")
+            elif len(mask_files) != 1:
+              raise Exception(f"Too many ROIs for {pattern}")
+            else:
+              mask = nib.load(mask_files[0]).get_fdata(dtype=np.float64)
+              # Row/column vs. x/y exchanges (y is row!); origin along at bottom/top of y axis
+              rois[tag] = np.flip(np.transpose(mask[:,:,ref_slice_num]), axis=0)
+              if rois[tag].shape != (height,width):
+                xs = rois[tag].shape[1] / width
+                ys = rois[tag].shape[0] / height
+                rois[tag] = ndi.affine_transform(rois[tag],
+                                                 np.array([[ys, 0],
+                                                           [0, xs]]),
+                                                 output_shape=(height,width))
+              mi = np.amin(rois[tag])
+              ma = np.amax(rois[tag])
+              th = 0.5 if np.abs(ma-mi) < 1e-4 else (mi + ma)/2.0
+              rois[tag][rois[tag] < th] = 0.0
+              rois[tag][rois[tag] > 0.0] = 1.0
+      for tag in rois:
+        if verbose > 0:
+          print(f"    {tag} mask")
+        if np.sum(rois[tag]) > 0: # Only store if we have any region at all
+          save_slice(os.path.join(out,pid), f"{pid}-{group}-{ref_slice_scan}-{ref_slice_num:04d}-{tag}",
+                     rois[tag], force, check, verbose)
+
+      # Anatomical segmentation masks
+      rois = {}
+      for tag in ['prostate', 'pz', 'tz']:
+        if tag not in rois:
+          rois[tag] = []
+        if tag == "prostate":
+          fname = "ProstateX-"+pid[-4:]+".nii.gz"
+        else:
+          fname = "ProstateX-"+pid[-4:]+"_"+tag+".nii.gz"
+        mask_file = os.path.join(dir,"prostate","mask_"+tag,fname)
+        if not os.path.isfile(mask_file):
+          if tag == "prostate":
+            fname = "ProstateX-"+pid[-3:]+".nii.gz"
+          else:
+            fname = "ProstateX-"+pid[-3:]+"_"+tag+".nii.gz"
+          mask_file = os.path.join(dir,"prostate","mask_"+tag,fname)
+        if not os.path.isfile(mask_file):
+          if tag == "prostate":
+            fname = "VOLUME-"+pid[-4:]+".nii.gz"
+          else:
+            fname = "VOLUME-"+pid[-4:]+"_"+tag+".nii.gz"
+          mask_file = os.path.join(dir,"prostate","mask_"+tag,fname)
+        if not os.path.isfile(mask_file):
+          print(f"Warning, {tag} mask for {fname} not found, skipping")
+        else:
+          mask = nib.load(mask_file).get_fdata(dtype=np.float64)
+          rois[tag] = np.flip(np.transpose(mask[:,:,ref_slice_num]), axis=0)
+          if rois[tag].shape != (height,width):
+            xs = rois[tag].shape[1] / width
+            ys = rois[tag].shape[0] / height
+            rois[tag] = ndi.affine_transform(rois[tag],
+                                             np.array([[ys, 0],
+                                                       [0, xs]]),
+                                             output_shape=(height,width))
+          mi = np.amin(rois[tag])
+          ma = np.amax(rois[tag])
+          th = 0.5 if np.abs(ma-mi) < 1e-4 else (mi + ma)/2.0
+          rois[tag][rois[tag] < th] = 0.0
+          rois[tag][rois[tag] > 0.0] = 1.0
+          if tag == "prostate": # Fill holes for these tags
+            rois[tag] = ndi.binary_fill_holes(rois[tag]).astype(np.float64)
+      for tag in rois:
+        if verbose > 0:
+          print(f"    {tag} mask")
+        if np.sum(rois[tag]) > 0: # Only store if we have any region at all
+          save_slice(os.path.join(out,pid), f"{pid}-{group}-{ref_slice_scan}-{ref_slice_num:04d}-{tag}",
+                     rois[tag], force, check, verbose)
+
   if verbose == -1: # parallel
     print(f"Stopping {patient}")
 
@@ -1209,12 +1330,13 @@ def save_slice(outdir, fn, data, force, check, verbose):
           check_overwrite = True
     except Exception as e:
       print(f"Warning: {fn_base} data is not comparable:\n{e}")
-  if not os.path.isfile(fn_base+".npy") or force:
+  update_image = False
+  if (force and not check) or check_overwrite or not os.path.isfile(fn_base+".npy"):
     if verbose > 0:
       print("    Saving npy")
     np.save(fn_base+".npy", data, allow_pickle=False)
-  if not os.path.isfile(fn_base+".png") or (force and not check) or \
-     (os.path.isfile(fn_base+".png") and check_overwrite):
+    update_image = True
+  if (force and not check) or update_image or not os.path.isfile(fn_base+".png"):
     # For display only - we scale each image from its min to max value to full intensity range
     if verbose > 0:
       print("    Saving png")
