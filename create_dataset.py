@@ -531,7 +531,7 @@ def extract_slice(stack, transf_stack2patient, width, height, ref_transf_slice2p
                             [0.0,y_scale,0.0,0.0],
                             [0.0,0.0,1.0,0.0],
                             [0.0,0.0,0.0,1.0]],dtype=np.float64)
-  # (Reference) slice to (data) stack transformations
+  # Reference slice to data stack transformations
   transf_ref2stack = np.linalg.inv(transf_stack2patient) @ ref_transf_slice2patient @ transf_slice
   transf_stack2ref = np.linalg.inv(ref_transf_slice2patient @ transf_slice) @ transf_stack2patient
   # Slice
@@ -540,6 +540,8 @@ def extract_slice(stack, transf_stack2patient, width, height, ref_transf_slice2p
   # Intersections of Voxels is hard, even if doable, even with exact arithmetic:
   #   J.-P. Reveilles. The Geometry of the Intersection of Voxel Spaces.
   #   Electronic Notes in Theoretical Computer Science, 46:285-308, 2001.
+  # Or maybe tricubic:
+  #   https://github.com/DurhamDecLab/ARBInterp/blob/master/src/ARBInterp/ARBInterp.py
   # Instead, we approximate the overlap per voxel sampling the volume using a Sobol sequence
 
   # Determine number of sample points based on density
@@ -553,10 +555,10 @@ def extract_slice(stack, transf_stack2patient, width, height, ref_transf_slice2p
   if verbose > 0:
     print(f"    Resampling with {n_samples} per resampled/output voxel")
 
-  # Generate samples inside a stack voxel, mapped to the slice ("directions" only, centered at 0)
+  # Generate samples inside a stack voxel, mapped to the slice
   skip = math.floor(math.log(n_samples*3,2))
   samples = np.transpose(sobol_seq.i4_sobol_generate(3,n_samples+skip)[skip:,:]) - np.matrix([[0.0],[0.0],[0.5]])
-  samples = transf_stack2ref @ np.vstack((samples,np.zeros((1,n_samples)))) # Note, these are directions from the voxe position
+  samples = transf_stack2ref @ np.vstack((samples,np.zeros((1,n_samples)))) # Directions from the voxel position
 
   # For each voxel in the slice (could also do for each stack voxel, but likely more unused voxels)
   for x_idx in range(0,width):
