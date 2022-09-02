@@ -26,7 +26,7 @@ The code is developed and maintained on [qyber\\black](https://qyber.black)
 at https://qyber.black/pca/code-qdicom-utilities
 
 This code is mirrored at
-* https://github.com/xis10z/Code-QDicom-Utilities
+* https://github.com/qyber-black/Code-QDicom-Utilities
 
 The mirrors are only for convenience, accessibility and backup.
 
