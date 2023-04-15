@@ -338,16 +338,16 @@ def parse_csa_header(tag, little_endian = True):
 
   # The data starts with "SV10" followed by 0x04, 0x03, 0x02, 0x01.
   # It's meaningless to me, so after reading it, I discard it.
-  size, chunks = get_chunks(tag, current, "4s4s")
+  size, chunks = get_chunks(tag, current, "4s4s", little_endian=little_endian)
   current += size
 
   # Get the number of elements in the outer list
-  size, chunks = get_chunks(tag, current, "L")
+  size, chunks = get_chunks(tag, current, "L", little_endian=little_endian)
   current += size
   element_count = chunks[0]
 
   # Eat a delimiter (should be 0x77)
-  size, chunks = get_chunks(tag, current, "4s")
+  size, chunks = get_chunks(tag, current, "4s", little_endian=little_endian)
   current += size
 
   for i in range(element_count):
@@ -362,7 +362,7 @@ def parse_csa_header(tag, little_endian = True):
     # - (4 bytes) syngo_dt
     # - (4 bytes) # of subelements in this element (often zero)
     # - (4 bytes) a delimiter (0x4d or 0xcd)
-    size, chunks = get_chunks(tag, current, "64s" + "4s" + "4s" + "4s" + "L" + "4s")
+    size, chunks = get_chunks(tag, current, "64s" + "4s" + "4s" + "4s" + "L" + "4s", little_endian=little_endian)
     current += size
 
     name, vm, vr, syngo_dt, subelement_count, delimiter = chunks
@@ -380,14 +380,14 @@ def parse_csa_header(tag, little_endian = True):
       # - (n bytes) String data, the length of which is defined by
       #   A (and A == B == D).
       # - (m bytes) Padding if length is not an even multiple of four.
-      size, chunks = get_chunks(tag, current, "4L")
+      size, chunks = get_chunks(tag, current, "4L", little_endian=little_endian)
       current += size
 
       length = chunks[0]
 
       # get a chunk-o-stuff, length indicated by code above.
       # Note that length can be 0.
-      size, chunks = get_chunks(tag, current, "%ds" % length)
+      size, chunks = get_chunks(tag, current, "%ds" % length, little_endian=little_endian)
       current += size
       if chunks[0]:
         values.append(chunks[0])
@@ -424,12 +424,12 @@ def scrub(item):
   else:
     return item
 
-def get_chunks(tag, index, format, little_endian=True):
+def get_chunks(tag, index, format_str, little_endian=True):
   # Get chunk from CSA header
-  format = ('<' if little_endian else '>') + format
-  size = struct.calcsize(format)
+  format_str = ('<' if little_endian else '>') + format_str
+  size = struct.calcsize(format_str)
   if index+size < len(tag):
-    chunks = [scrub(item) for item in struct.unpack(format, tag[index:index + size])]
+    chunks = [scrub(item) for item in struct.unpack(format_str, tag[index:index + size])]
   else:
     raise ValueError("broken chunk")
   return (size, chunks)
