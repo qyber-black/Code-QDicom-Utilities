@@ -1,6 +1,6 @@
 # QDicom Utilities
 
-> SPDX-FileCopyrightText: Copyright (C) 2020-2022 Frank C Langbein <frank@langbein.org>, Cardiff University  
+> SPDX-FileCopyrightText: Copyright (C) 2020-2023 Frank C Langbein <frank@langbein.org>, Cardiff University  
 > SPDX-License-Identifier: AGPL-3.0-or-later  
 
 A set of utilities to deal with dicom files and data repositories, specifically
@@ -12,8 +12,10 @@ aimed at the qyber archives, but some may be more generally useful or adaptable.
   * This can specifically deal with Siemens CSA headers.
 * check-dataset-structure.py
   * Check and possibly fix file system structure of a dicom dataset.
-* create-dataset.py
+* create_dataset.py
   * Creates dataset from dicom repository
+* conv_picai.py
+  * Creates dataset from PI-CAI repositories
 
 See the --help messages and the comments in the files for more information.
 
