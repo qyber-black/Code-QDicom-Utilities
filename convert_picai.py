@@ -186,14 +186,14 @@ def process_patient(data, labels, out, ps, verbose=0):
           dmin = XX.min()
           if dmax > dmin:
             XX = ((XX - dmin) / (dmax - dmin))
-          XX *= (2**16-1)
+          XX *= (2**8-1)
           Image.fromarray(XX.astype(np.uint8)).save(fn+".png", optimize=True, bits=8)
           # Suspicious PNG
           dmax = XXX.max()
           dmin = XXX.min()
           if dmax > dmin:
             XXX = ((XXX - dmin) / (dmax - dmin))
-          XXX *= (2**16-1)
+          XXX *= (2**8-1)
           Image.fromarray(XXX.astype(np.uint8)).save(fns+".png", optimize=True, bits=8)
 
       # Anatomical AI delineation for whole gland, for t2w (so no transf. needed)
@@ -210,7 +210,7 @@ def process_patient(data, labels, out, ps, verbose=0):
           dmin = XX.min()
           if dmax > dmin:
             XX = ((XX - dmin) / (dmax - dmin))
-          XX *= (2**16-1)
+          XX *= (2**8-1)
           Image.fromarray(XX.astype(np.uint8)).save(fn+".png", optimize=True, bits=8)
 
 if __name__ == '__main__':
