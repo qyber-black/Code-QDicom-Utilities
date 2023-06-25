@@ -44,8 +44,8 @@ def main():
   parser.add_argument('-o', '--out', type=str, help='Folder to store dataset (stores as REF_PATIENT-REF_SESSION/REF_PATIENT-REF_SESSION-REF_SCAN-REF_SLICE-PROTOCOL in npy; png only for display)')
   parser.add_argument('-a', '--all-slices', action='store_true', help='Convert all slices, not only prostate slices')
   parser.add_argument('-m', '--modalities', type=lambda x : x.lower(), nargs='+',
-                      default=sorted(['t2w', 'adc', 'hbv', 'prostate', 'pirads']),
-                      choices=['t2w', 'adc', 'hbv', 'cor', 'sag', 'prostate', 'pirads', 'suspicious', 'normal'],
+                      default=sorted(['t2w', 'adc', 'hbv', 'prostate', 'pztz', 'pirads']),
+                      choices=['t2w', 'adc', 'hbv', 'cor', 'sag', 'prostate', 'pztz', 'pirads', 'suspicious', 'normal'],
                       help='Select modalities and masks to convert from t2w, adc, hbv, cor, sag, prostate, pirads, suspicious, normal; make sure t2w is always selected as it is reference frame')
   parser.add_argument('-p', '--disable-parallel', action='store_true', help='Do not execute in parallel (disable for testing, etc)')
   parser.add_argument('-v', '--verbose', action='count', help='Increase output verbosity', default=0)
@@ -185,12 +185,12 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
           Image.fromarray(XX.astype(np.uint16)).save(fn+".png", optimize=True, bits=16)
 
       # Process delineations for patient / session
-      if verbose > 0:
-        print(f"# Patient {fold}/{p} ({session}) -- delineations")
 
       # Resampled, human expert csPCa lesion delineations resampled to t2w (so no transf. needed)
       path = os.path.join(labels, "csPCa_lesion_delineations", "human_expert", "resampled", f"{p}_{session}.nii.gz")
       if os.path.isfile(path): # If not we do not have data (does not mean negative, but missing data, see PI-CAI doc)
+        if verbose > 0:
+          print(f"# Patient {fold}/{p} ({session}) -- PCa labels")
         csPCa = nib.load(path)
         X = csPCa.get_fdata().astype(np.uint8)
         if verbose > 0:
@@ -239,41 +239,74 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
 
       # Anatomical AI delineation for whole gland, for t2w (so no transf. needed)
       if 'prostate' in modalities:
-        path = os.path.join(labels, "anatomical_delineations", "whole_gland", "AI", "Bosma22b", f"{p}_{session}.nii.gz")
-        if os.path.isfile(path): # if not, means we have no data
-          prostate = nib.load(path)
-          X = prostate.get_fdata().astype(np.uint8)
-          fn_base = os.path.join(outdir,f"{p}-{session_num+1:02d}-9900")
-          for slice in range(min_slice,max_slice):
-            # Prostate mask
-            fn = fn_base + f"-{slice:04d}-prostate"
-            XX = np.copy(X[:,:,slice])
-            np.save(fn+".npy", XX, allow_pickle=False)
-            # Prostate png
-            dmax = XX.max()
-            dmin = XX.min()
-            if dmax > dmin:
-              XX = ((XX - dmin) / (dmax - dmin))
-            XX *= (2**8-1)
-            Image.fromarray(XX.astype(np.uint8)).save(fn+".png", optimize=True, bits=8)
+        scanid = 9800
+        for src in ['Bosma22b', 'Guerbet23']:
+          if verbose > 0:
+            print(f"# Patient {fold}/{p} ({session}) -- prostate labels {src}")
+          path = os.path.join(labels, "anatomical_delineations", "whole_gland", "AI", src, f"{p}_{session}.nii.gz")
+          if os.path.isfile(path): # if not, means we have no data
+            prostate = nib.load(path)
+            X = prostate.get_fdata().astype(np.uint8)
+            fn_base = os.path.join(outdir,f"{p}-{session_num+1:02d}-{scanid}")
+            for slice in range(min_slice,max_slice):
+              # Prostate mask
+              fn = fn_base + f"-{slice:04d}-prostate:{src}"
+              XX = np.copy(X[:,:,slice])
+              np.save(fn+".npy", XX, allow_pickle=False)
+              # Prostate png
+              dmax = XX.max()
+              dmin = XX.min()
+              if dmax > dmin:
+                XX = ((XX - dmin) / (dmax - dmin))
+              XX *= (2**8-1)
+              Image.fromarray(XX.astype(np.uint8)).save(fn+".png", optimize=True, bits=8)
+          scanid += 1
+      if 'pztz' in modalities:
+        scanid = 9900
+        for src in ['HeviAI23', 'Yuan23']:
+          if verbose > 0:
+            print(f"# Patient {fold}/{p} ({session}) -- pztz labels {src}")
+          path = os.path.join(labels, "anatomical_delineations", "zonal_pz_tz", "AI", src, f"{p}_{session}.nii.gz")
+          if os.path.isfile(path): # if not, means we have no data
+            prostate = nib.load(path)
+            X = prostate.get_fdata().astype(np.uint8)
+            fn_base = os.path.join(outdir,f"{p}-{session_num+1:02d}-{scanid}")
+            for slice in range(min_slice,max_slice):
+              if slice < X.shape[-1]: # pztz may have fewer slices
+                # PZTZ mask
+                fn = fn_base + f"-{slice:04d}-pztz:{src}"
+                XX = np.copy(X[:,:,slice])
+                np.save(fn+".npy", XX, allow_pickle=False)
+                # PZTZ png
+                dmax = XX.max()
+                dmin = XX.min()
+                if dmax > dmin:
+                  XX = ((XX - dmin) / (dmax - dmin))
+                XX *= (2**8-1)
+                Image.fromarray(XX.astype(np.uint8)).save(fn+".png", optimize=True, bits=8)
+          scanid += 1
 
 def get_prostate_slices(labels, p, session, all_slices):
   # Determine slice range of prostate for patient p/session; if all_slices report full slice range
-  path = os.path.join(labels, "anatomical_delineations", "whole_gland", "AI", "Bosma22b", f"{p}_{session}.nii.gz")
-  if os.path.isfile(path): # if not, means we have no data
-    prostate = nib.load(path)
-    X = prostate.get_fdata().astype(np.uint8)
-    if all_slices:
-      return 0, X.shape[-1]
-    min_slice = X.shape[-1]
-    max_slice = 0
-    for slice in range(0,X.shape[-1]):
-      cnt = np.unique(X[:,:,slice]).shape[0]
-      if cnt > 1:
-        if slice < min_slice:
-          min_slice = slice
-        if slice > max_slice:
-          max_slice = slice
+  min_slice = None
+  max_slice = None
+  for src in ['Bosma22b', 'Guerbet23']:
+    path = os.path.join(labels, "anatomical_delineations", "whole_gland", "AI", src, f"{p}_{session}.nii.gz")
+    if os.path.isfile(path): # if not, means we have no data
+      prostate = nib.load(path)
+      X = prostate.get_fdata().astype(np.uint8)
+      if all_slices: # We want all slices anyway
+        return 0, X.shape[-1]
+      if min_slice is None: # Initialise range
+        min_slice = X.shape[-1]
+        max_slice = 0
+      for slice in range(0,X.shape[-1]):
+        cnt = np.unique(X[:,:,slice]).shape[0]
+        if cnt > 1:
+          if slice < min_slice:
+            min_slice = slice
+          if slice > max_slice:
+            max_slice = slice
     return min_slice, max_slice+1
   return None, None
 
