@@ -43,6 +43,10 @@ def main():
   parser.add_argument('-l', '--labels', type=str, help='Folder with the label files for PI-CAI')
   parser.add_argument('-o', '--out', type=str, help='Folder to store dataset (stores as REF_PATIENT-REF_SESSION/REF_PATIENT-REF_SESSION-REF_SCAN-REF_SLICE-PROTOCOL in npy; png only for display)')
   parser.add_argument('-a', '--all-slices', action='store_true', help='Convert all slices, not only prostate slices')
+  parser.add_argument('-m', '--modalities', type=lambda x : x.lower(), nargs='+',
+                      default=sorted(['t2w', 'adc', 'hbv', 'prostate', 'pirads']),
+                      choices=['t2w', 'adc', 'hbv', 'cor', 'sag', 'prosate', 'pirads', 'suspicious', 'normal'],
+                      help='Select modalities and masks to convert from t2w, adc, hbv, cor, sag, prostate, pirads, suspicious, normal; make sure t2w is always selected as it is reference frame')
   parser.add_argument('-p', '--disable-parallel', action='store_true', help='Do not execute in parallel (disable for testing, etc)')
   parser.add_argument('-v', '--verbose', action='count', help='Increase output verbosity', default=0)
   args = parser.parse_args()
@@ -58,9 +62,10 @@ def main():
     print("Dataset folder not specified")
     exit(1)
 
-  conv_picai(args.data, args.labels, args.out, args.all_slices, args.verbose, not(args.disable_parallel))
+  conv_picai(args.data, args.labels, args.out, args.all_slices, args.modalities, 
+             args.verbose, not(args.disable_parallel))
 
-def conv_picai(data, labels, out, all_slices, verbose=0, parallel=True):
+def conv_picai(data, labels, out, all_slices, modalities, verbose=0, parallel=True):
   # Convert all patient data
   patients = []
   for fold in sorted(os.listdir(data)): # for each fold
@@ -73,27 +78,28 @@ def conv_picai(data, labels, out, all_slices, verbose=0, parallel=True):
   with open(os.path.join(labels,'clinical_information', 'marksheet.csv'), mode='r') as csvfile:
     csv_reader = csv.DictReader(csvfile, delimiter=',')
     for row in csv_reader:
-      id = row['patient_id']+"-"+row['study_id']
-      patient_info[id] = { }
+      pid = row['patient_id']+"-"+row['study_id']
+      patient_info[pid] = { }
       for tag in row:
-        patient_info[id][tag] = row[tag]
+        patient_info[pid][tag] = row[tag]
 
   if parallel:
     import joblib
-    joblib.Parallel(n_jobs=-1, prefer="processes", verbose=10*verbose) \
+    joblib.Parallel(n_jobs=16, prefer="processes", verbose=10*verbose) \
                    (joblib.delayed(process_patient)(data, labels, out, ps, patient_info,
-                                   all_slices, verbose) for ps in patients)
+                                   all_slices, modalities, verbose) for ps in patients)
   else:
     for ps in patients:
-      process_patient(data, labels, out, ps, patient_info, all_slices, verbose)
+      process_patient(data, labels, out, ps, patient_info, all_slices, modalities, verbose)
 
-def process_patient(data, labels, out, ps, pinfo, all_slices, verbose=0):
+def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbose=0):
   # Convert patient
   fold = ps[0]
   p = ps[1]
     
   # Load patient stacks as nifti files
-  with tempfile.TemporaryDirectory() as tmp: # Temporary folder to store nii conversions - FIXME: can this be done in memory?
+  with tempfile.TemporaryDirectory() as tmp: # Temporary folder to store nii conversions
+                                             # FIXME: can this be done in memory?
 
     # Handle more than one study in folder and split into two studies/sessions
     sessions = []
@@ -111,7 +117,7 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, verbose=0):
         study_id = os.path.splitext(f)[0].split("_")[1]
         if study_id == session: # skip other session files
           proto = os.path.splitext(f)[0].split("_")[-1]
-          if proto != "cor" and proto != "sag": # Do not convert t2-cor or t2-sag
+          if proto in modalities: # Convert only selected
             if verbose > 0:
               print(f"# Patient {fold}/{p} ({session}) -- {proto}")
             # Convert MHA to NII temporarily to load/process with nib
@@ -187,52 +193,69 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, verbose=0):
       if os.path.isfile(path): # If not we do not have data (does not mean negative, but missing data, see PI-CAI doc)
         csPCa = nib.load(path)
         X = csPCa.get_fdata().astype(np.uint8)
-        fn_base = os.path.join(outdir,f"{p}-{session_num+1:02d}-9998")
-        fns_base = os.path.join(outdir,f"{p}-{session_num+1:02d}-9999")
         if verbose > 0:
           print(f"# Patient {fold}/{p} ({session}) -- PIRADS: {np.unique(X)}")
         for slice in range(min_slice,max_slice):
-          # PI-RADS rating
-          fn = fn_base + f"-{slice:04d}-pirads"
-          XX = np.copy(X[:,:,slice])
-          np.save(fn+".npy", XX, allow_pickle=False)
-          # cs-PCa as suspicious map (it's cs-PCa if PIRADS is 2,3,4,5; see PI-CAI doc)
-          fns = fns_base + f"-{slice:04d}-suspicious"
-          XXX = np.copy(XX)
-          XXX[XX<3] = 0
-          XXX[XX>2] = 1
-          np.save(fns+".npy", XXX, allow_pickle=False)
-          # PIRADS PNG
-          dmax = XX.max()
-          dmin = XX.min()
-          if dmax > dmin:
-            XX = ((XX - dmin) / (dmax - dmin))
-          XX *= (2**8-1)
-          Image.fromarray(XX.astype(np.uint8)).save(fn+".png", optimize=True, bits=8)
-          # Suspicious PNG
-          dmax = XXX.max()
-          dmin = XXX.min()
-          if dmax > dmin:
-            XXX = ((XXX - dmin) / (dmax - dmin))
-          XXX *= (2**8-1)
-          Image.fromarray(XXX.astype(np.uint8)).save(fns+".png", optimize=True, bits=8)
+          if 'pirads' in modalities:
+            # PI-RADS rating
+            fn = os.path.join(outdir,f"{p}-{session_num+1:02d}-9999-{slice:04d}-pirads")
+            XX = np.copy(X[:,:,slice])
+            np.save(fn+".npy", XX, allow_pickle=False)
+            # PIRADS PNG
+            dmax = XX.max()
+            dmin = XX.min()
+            if dmax > dmin:
+              XX = ((XX - dmin) / (dmax - dmin))
+            XX *= (2**8-1)
+            Image.fromarray(XX.astype(np.uint8)).save(fn+".png", optimize=True, bits=8)
+          if 'suspicious' in modalities:
+            # cs-PCa as suspicious map (it's cs-PCa if PIRADS is 3,4,5; see PI-CAI doc)
+            fns = os.path.join(outdir,f"{p}-{session_num+1:02d}-9998-{slice:04d}-suspicious")
+            XX = np.copy(X[:,:,slice])
+            XX[XX<3] = 0
+            XX[XX>2] = 1
+            np.save(fns+".npy", XX, allow_pickle=False)
+            # Suspicious PNG
+            dmax = XX.max()
+            dmin = XX.min()
+            if dmax > dmin:
+              XX = ((XX - dmin) / (dmax - dmin))
+            XX *= (2**8-1)
+            Image.fromarray(XX.astype(np.uint8)).save(fns+".png", optimize=True, bits=8)
+          if 'normal' in modalities:
+            # cs-PCa as normal map (it's cs-PCa if PIRADS is 1,2; see PI-CAI doc)
+            fns = os.path.join(outdir,f"{p}-{session_num+1:02d}-9997-{slice:04d}-normal")
+            XX = np.copy(X[:,:,slice])
+            XX[XX>2] = 0
+            XX[XX>0] = 1
+            np.save(fns+".npy", XX, allow_pickle=False)
+            # Suspicious PNG
+            dmax = XX.max()
+            dmin = XX.min()
+            if dmax > dmin:
+              XX = ((XX - dmin) / (dmax - dmin))
+            XX *= (2**8-1)
+            Image.fromarray(XX.astype(np.uint8)).save(fns+".png", optimize=True, bits=8)
 
       # Anatomical AI delineation for whole gland, for t2w (so no transf. needed)
-      path = os.path.join(labels, "anatomical_delineations", "whole_gland", "AI", "Bosma22b", f"{p}_{session}.nii.gz")
-      if os.path.isfile(path): # if not, means we have no data
-        prostate = nib.load(path)
-        X = prostate.get_fdata().astype(np.uint8)
-        fn_base = os.path.join(outdir,f"{p}-{session_num+1:02d}-9900")
-        for slice in range(min_slice,max_slice):
-          fn = fn_base + f"-{slice:04d}-prostate"
-          XX = np.copy(X[:,:,slice])
-          np.save(fn+".npy", XX, allow_pickle=False)
-          dmax = XX.max()
-          dmin = XX.min()
-          if dmax > dmin:
-            XX = ((XX - dmin) / (dmax - dmin))
-          XX *= (2**8-1)
-          Image.fromarray(XX.astype(np.uint8)).save(fn+".png", optimize=True, bits=8)
+      if 'prostate' in modalities:
+        path = os.path.join(labels, "anatomical_delineations", "whole_gland", "AI", "Bosma22b", f"{p}_{session}.nii.gz")
+        if os.path.isfile(path): # if not, means we have no data
+          prostate = nib.load(path)
+          X = prostate.get_fdata().astype(np.uint8)
+          fn_base = os.path.join(outdir,f"{p}-{session_num+1:02d}-9900")
+          for slice in range(min_slice,max_slice):
+            # Prostate mask
+            fn = fn_base + f"-{slice:04d}-prostate"
+            XX = np.copy(X[:,:,slice])
+            np.save(fn+".npy", XX, allow_pickle=False)
+            # Prostate png
+            dmax = XX.max()
+            dmin = XX.min()
+            if dmax > dmin:
+              XX = ((XX - dmin) / (dmax - dmin))
+            XX *= (2**8-1)
+            Image.fromarray(XX.astype(np.uint8)).save(fn+".png", optimize=True, bits=8)
 
 def get_prostate_slices(labels, p, session, all_slices):
   # Determine slice range of prostate for patient p/session; if all_slices report full slice range
