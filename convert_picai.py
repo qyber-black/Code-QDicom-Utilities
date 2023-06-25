@@ -85,7 +85,7 @@ def conv_picai(data, labels, out, all_slices, modalities, verbose=0, parallel=Tr
 
   if parallel:
     import joblib
-    joblib.Parallel(n_jobs=16, prefer="processes", verbose=10*verbose) \
+    joblib.Parallel(n_jobs=-1, prefer="processes", verbose=10*verbose) \
                    (joblib.delayed(process_patient)(data, labels, out, ps, patient_info,
                                    all_slices, modalities, verbose) for ps in patients)
   else:
