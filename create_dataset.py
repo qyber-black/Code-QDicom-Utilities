@@ -45,7 +45,7 @@
 #   ]
 # }
 #
-# dataset: reference for dataset sourcer (swansea-pca, prostatex supported;
+# dataset: reference for dataset source (swansea-pca, prostatex supported;
 #          most info for prostatex comes from their csv files)
 #
 # Dataset generated for swansea-pca according to:
@@ -53,21 +53,21 @@
 # slices: array of selected 2D slices for data set; each slice is specified by
 #         patient-id, session-id, protocol, scan, slice
 #         (search in dicom data repository path; script finds the group;
-#         paitent-id assumed to be unique)
+#         patient-id assumed to be unique)
 #
 # * width,height: resolution
 #                 Rescales the data to this size from original slice size.
-#                 Should match resolution of original as far as possible (obvouisly
+#                 Should match resolution of original as far as possible (obviously
 #                 that is not doable if protocols have different resolutions).
 # * density: sampling densities in samples per mm per axis, used to resample stacks, if needed; default 25.
 #            We resample slices to the reference slice via the patient coordinate space (and registration
 #            if requested). Sampling is done via intersecting the reference slice voxel mapped onto the
 #            stack and sampling the overlap per voxel in the reference slice. The voxel value is the
 #            weighted average of the reference slice voxel values using the sampled overlap percentage.
-#            Samples are taken using a sobol sequence for even coverage of sapce. This is slow (but
+#            Samples are taken using a Sobol sequence for even coverage of space. This is slow (but
 #            nearest neighbour or some interpolation scheme may have more accuracy issues). We may change
 #            this to something better eventually. For now it works for what we need it for.
-# * regsiter: true/false - register stack to reference stack (determined by slices specified);
+# * register: true/false - register stack to reference stack (determined by slices specified);
 #             this needs more work.
 # * protocols: list of protocols to select
 #              Data acquisition protocols: t1-tra, t1-sag,
@@ -87,7 +87,7 @@
 #
 # * width,height: resolution
 #                 Rescales the data to this size from original slice size.
-#                 Should match resolution of original as far as possible (obvouisly
+#                 Should match resolution of original as far as possible (obviously
 #                 that is not doable if protocols have different resolutions).
 # * skip_patient: list of lists with two entires [PATIENT_ID, COMMENT] of patients to ignore
 # * ref_protocol: name of the protocol used as reference slice for finding
@@ -143,7 +143,7 @@ def main():
   elif sel_js["dataset"] == "prostatex":
     prostatex(args, sel_js)
   else:
-    raise Exception(f"Unkown daataset {sel_js['dataset']}")
+    raise Exception(f"Unknown dataset {sel_js['dataset']}")
 
 def swansea_pca(args, sel_js):
   # Collect slices for the same patient-session for swansea-pca
@@ -153,9 +153,9 @@ def swansea_pca(args, sel_js):
     # Find slice group
     group = None
     for g in os.listdir(args.data):
-      dir = os.path.join(args.data,g)
-      if os.path.isdir(dir) and os.path.isdir(os.path.join(dir,slice[0])) \
-         and os.path.isdir(os.path.join(dir,slice[0],slice[1])):
+      dirname = os.path.join(args.data,g)
+      if os.path.isdir(dirname) and os.path.isdir(os.path.join(dirname,slice[0])) \
+         and os.path.isdir(os.path.join(dirname,slice[0],slice[1])):
         group = g
         break
     if group is None:
@@ -289,24 +289,24 @@ def process_patient(data, patient, ps, sel_js, density, out, force, check, verbo
   if verbose == -1: # parallel
     print(f"Stopping {ps}")
 
-def get_slice(dir,slice,verbose):
-  path, scan = os.path.split(dir)
+def get_slice(dir_name,slice_num,verbose):
+  path, scan = os.path.split(dir_name)
   path, session = os.path.split(path)
   path, patient = os.path.split(path)
   path, group = os.path.split(path)
   if verbose > 0:
-    print(f"  {group}-{patient}-{session}-{scan}: {slice}")
+    print(f"  {group}-{patient}-{session}-{scan}: {slice_num}")
   # Load reference slice
-  file0 = os.path.join(dir,f"{patient}-{session}-{scan}-{slice}.IMA")
+  file0 = os.path.join(dir_name,f"{patient}-{session}-{scan}-{slice_num}.IMA")
   if not os.path.isfile(file0):
     return None, None, None, None
   # 2nd slice for 3D reference
-  file1 = os.path.join(dir,f"{patient}-{session}-{scan}-{int(slice)+1:04d}.IMA")
+  file1 = os.path.join(dir_name,f"{patient}-{session}-{scan}-{int(slice_num)+1:04d}.IMA")
   if os.path.isfile(file1):
     # Found 2nd reference
     zdir = 1.0
   else:
-    file1 = os.path.join(dir,f"{patient}-{session}-{scan}-{int(slice)-1:04d}.IMA")
+    file1 = os.path.join(dir_name,f"{patient}-{session}-{scan}-{int(slice_num)-1:04d}.IMA")
     if os.path.isfile(file1):
       # Found 2nd reference, but before ref. slice
       zdir = -1.0
@@ -349,7 +349,7 @@ def get_slice(dir,slice,verbose):
       Z = zdir * (S1 - S)
 
   # 3D MRI image plane conversion via two slices in the stack; that means we
-  # load tghe dicoms a few times, as we do not reuse the stack info, but fast
+  # load the dicoms a few times, as we do not reuse the stack info, but fast
   # enough here.
   # Matrix to convert from image index (with slice index relative to current slice)
   # to patient coordinates in mm
@@ -377,9 +377,9 @@ def get_stacks(patient_base, protocols, ref_scan, verbose):
       # Find protocol
       sns = sorted(glob.glob(os.path.join(path,'*.IMA')))
       if len(sns) > 0:
-        slice = os.path.basename(sns[0]).split("-")[3].split(".")[0]
-        dicom, info, transf_stack2patient, _ = get_slice(path, slice, 0)
-        first_slice = int(slice)
+        slice_num = os.path.basename(sns[0]).split("-")[3].split(".")[0]
+        dicom, info, transf_stack2patient, _ = get_slice(path, slice_num, 0)
+        first_slice = int(slice_num)
         if '[CSA Series Header Info]' in info and 'protocol' in info['[CSA Series Header Info]'] and \
            'tProtocolName' in info['[CSA Series Header Info]']['protocol']:
           org_protocol = info['[CSA Series Header Info]']['protocol']['tProtocolName']
@@ -406,11 +406,10 @@ def get_stacks(patient_base, protocols, ref_scan, verbose):
                                         'CALC_BVALUE' in info['ImageType']): # Ignoring calculated high b-value
               protocol = None
           else:
-            raise Exception(f"Unkown protocol {org_protocol}")
+            raise Exception(f"Unknown protocol {org_protocol}")
           # Ensure we load reference stack and it has a protocol
-          if ref_scan == scan:
-            if protocol == None:
-              raise Exception("Unknown protocol for refernece slice stack")
+          if ref_scan == scan and protocol == None:
+            raise Exception("Unknown protocol for reference slice stack")
           if protocol in stacks:
             # Check if duplicate (we always pick the first, but warn)
             print(f"Warning: duplicate {protocol} in scan {scan} in {patient_base}")
@@ -424,15 +423,15 @@ def get_stacks(patient_base, protocols, ref_scan, verbose):
             max_diff = np.linalg.norm(0.25 * Z0)
             X1 = X0 + Z0
             for k in range(1,len(sns)):
-              slice = os.path.basename(sns[k]).split("-")[3].split(".")[0]
-              dicom, _, transf, _ = get_slice(path, slice, 0)
+              slice_num = os.path.basename(sns[k]).split("-")[3].split(".")[0]
+              dicom, _, transf, _ = get_slice(path, slice_num, 0)
               # Check if step size is consistent with slice numbers
               # We assume dwi is OK (as pos reset between different b values makes it harder to check and should not be necessary really; just for safety)
               if protocol != "dwi":
                 XX = transf[0:3,3]/transf[3,3]
                 diff = np.linalg.norm(XX-X1)
                 if diff > max_diff:
-                  raise Exception(f"Steps between slice not consistent with step number: {diff} for {slice}")
+                  raise Exception(f"Steps between slice not consistent with step number: {diff} for {slice_num}")
                 X1 += Z0
               data.append(dicom.pixel_array.astype(np.uint16, order='C', casting='safe', copy=False))
             # dicoms sorted by file order / number in swansea-pca set
@@ -455,9 +454,9 @@ def create_slice(output, stack, first_slice, stack_scan, info, transf_stack2pati
   # Create specific channel slice in dataset from reference slice
 
   # Bits known?
-  if not "BitsStored" in info:
+  if "BitsStored" not in info:
     raise Exception("No BitsStored information")
-  # Greyscale?
+  # Grayscale?
   if info["SamplesPerPixel"] != 1:
     raise Exception("Not single intensity")
 
@@ -491,14 +490,14 @@ def create_slice(output, stack, first_slice, stack_scan, info, transf_stack2pati
           if verbose > 0:
             print(f"    B={b[keys[k]]}")
           # Cutout slice from b-stack dwi data
-          slice = extract_slice(stack[k*per_stack:(k+1)*per_stack,:,:],
-                                transf_stack2patient, width, height,
-                                ref_transf_slice2patient, ref_size,
-                                ref_slice_scan, ref_slice_num, stack_scan, first_slice,
-                                density, verbose)
-          slice /= np.float64(2**info['BitsStored']-1) # Normalise
+          slice_num = extract_slice(stack[k*per_stack:(k+1)*per_stack,:,:],
+                                    transf_stack2patient, width, height,
+                                    ref_transf_slice2patient, ref_size,
+                                    ref_slice_scan, ref_slice_num, stack_scan, first_slice,
+                                    density, verbose)
+          slice_num /= np.float64(2**info['BitsStored']-1) # Normalise
           # Save result
-          save_slice(output, fnb, slice, force, check, verbose)
+          save_slice(output, fnb, slice_num, force, check, verbose)
     else:
       raise Exception("No b-field values for DWI")
   else:
@@ -509,13 +508,13 @@ def create_slice(output, stack, first_slice, stack_scan, info, transf_stack2pati
        os.path.isfile(os.path.join(output,fnb+".png")):
       return
     # Cutout slice from protocol data
-    slice = extract_slice(stack, transf_stack2patient, width, height,
-                          ref_transf_slice2patient, ref_size,
-                          ref_slice_scan, ref_slice_num, stack_scan, first_slice,
-                          density, verbose)
-    slice /= np.float64(2**info['BitsStored']-1) # Normalise
+    slice_num = extract_slice(stack, transf_stack2patient, width, height,
+                              ref_transf_slice2patient, ref_size,
+                              ref_slice_scan, ref_slice_num, stack_scan, first_slice,
+                              density, verbose)
+    slice_num /= np.float64(2**info['BitsStored']-1) # Normalise
     # Save result
-    save_slice(output, fnb, slice, force, check, verbose)
+    save_slice(output, fnb, slice_num, force, check, verbose)
 
 def extract_slice(stack, transf_stack2patient, width, height, ref_transf_slice2patient,
                   ref_size, ref_slice_scan, ref_slice_num, scan, first_slice, density, verbose):
@@ -535,12 +534,12 @@ def extract_slice(stack, transf_stack2patient, width, height, ref_transf_slice2p
   transf_ref2stack = np.linalg.inv(transf_stack2patient) @ ref_transf_slice2patient @ transf_slice
   transf_stack2ref = np.linalg.inv(ref_transf_slice2patient @ transf_slice) @ transf_stack2patient
   # Slice
-  slice = np.zeros((height,width), dtype=np.float64)
+  slice_data = np.zeros((height,width), dtype=np.float64)
 
   # Intersections of Voxels is hard, even if doable, even with exact arithmetic:
   #   J.-P. Reveilles. The Geometry of the Intersection of Voxel Spaces.
   #   Electronic Notes in Theoretical Computer Science, 46:285-308, 2001.
-  # Or maybe tricubic:
+  # Or maybe tri-cubic:
   #   https://github.com/DurhamDecLab/ARBInterp/blob/master/src/ARBInterp/ARBInterp.py
   # Instead, we approximate the overlap per voxel sampling the volume using a Sobol sequence
 
@@ -563,7 +562,7 @@ def extract_slice(stack, transf_stack2patient, width, height, ref_transf_slice2p
   # For each voxel in the slice (could also do for each stack voxel, but likely more unused voxels)
   for x_idx in range(0,width):
     for y_idx in range(0,height):
-      # Interesect ref-slice voxels with stack voxels to determine slice voxel value
+      # Intersect ref-slice voxels with stack voxels to determine slice voxel value
       # Ref-slice voxel to stack voxel
       p = transf_ref2stack @ np.matrix([[x_idx,x_idx+1,x_idx+1,x_idx,  x_idx,x_idx+1,x_idx+1,x_idx],
                                         [y_idx,y_idx  ,y_idx+1,y_idx+1,y_idx,y_idx,  y_idx+1,y_idx+1],
@@ -578,7 +577,7 @@ def extract_slice(stack, transf_stack2patient, width, height, ref_transf_slice2p
       np.clip(p_idx[0,:], 0, stack.shape[2], p_idx[0,:])
       np.clip(p_idx[1,:], 0, stack.shape[1], p_idx[1,:])
       np.clip(p_idx[2,:], 0, stack.shape[0], p_idx[2,:])
-      # Integrate over stack voxels involved and intersesct each with slice voxel by sampling
+      # Integrate over stack voxels involved and intersect each with slice voxel by sampling
       v = np.float64(0.0)
       for vx_idx in range(p_idx[0,0],p_idx[0,1]):
         for vy_idx in range(p_idx[1,0],p_idx[1,1]):
@@ -587,8 +586,8 @@ def extract_slice(stack, transf_stack2patient, width, height, ref_transf_slice2p
             q = np.divide(q[0:3,:],np.vstack((q[3,:],q[3,:],q[3,:]))) - np.matrix([[x_idx],[y_idx],[-0.5]],dtype=np.float64)
             c = np.sum(np.sum(np.abs(np.floor(q)), axis=0) == 0)
             v += c / np.float64(n_samples) * stack[vz_idx,vy_idx,vx_idx]
-      slice[y_idx,x_idx] = v
-  return slice
+      slice_data[y_idx,x_idx] = v
+  return slice_data
 
 def compute_slice(output, compute, patient, session, scan, width, height, ref_slice_num,
                   ref_transf_slice2patient, ref_size, density, bits, force, check, verbose):
@@ -730,9 +729,8 @@ def generate_masks(output, stacks, tags, patient_base,
                                                            fns[1], 0)
       # Apply registration, if we have it (otherwise we ignore, even if reg. requested!)
       for s in stacks:
-        if stacks[s]['scan'] == fns[0]:
-          if 'transf_reg' in stacks[s]:
-            tag_transf_slice2patient *= stacks[p]["transf_reg"]
+        if stacks[s]['scan'] == fns[0] and 'transf_reg' in stacks[s]:
+          tag_transf_slice2patient *= stacks[p]["transf_reg"]
       # Convert polygon coordinates
       draw_roi(p['x'],p['y'],mask_slice,ref_inv * tag_transf_slice2patient)
     if np.sum(mask_slice) > 0: # Only store if we have any region at all
@@ -819,7 +817,7 @@ def register_stacks(stacks, ref, verbose):
   import SimpleITK as sitk
 
   def get_transf(stack):
-    # Get transformation from stack to patient space (used as virtual image space for registartion)
+    # Get transformation from stack to patient space (used as virtual image space for registration)
     # We need the inverse as the mapping is from the virtual domain to the image domain
     transf = stack["transf"]
     t = sitk.AffineTransform(3)
@@ -831,7 +829,7 @@ def register_stacks(stacks, ref, verbose):
   if verbose > 0:
     print(f"  Register to {ref}")
   fixed = sitk.GetImageFromArray(np.array(stacks[ref]["data"],dtype=np.float64))
-  # Transformation from patient/vritual image space to stack
+  # Transformation from patient/virtual image space to stack
   transf_f = get_transf(stacks[ref])
 
   for p in stacks:
@@ -855,7 +853,7 @@ def register_stacks(stacks, ref, verbose):
       else:
         # Get full stack for any other protocol
         moving = sitk.GetImageFromArray(np.array(stacks[p]["data"],dtype=np.float64))
-      # Transformation from patient/vritual image space to stack
+      # Transformation from patient/virtual image space to stack
       transf_m = get_transf(stacks[p])
 
       # Registration: needs more work - quite poor convergence and neither repeatable nor reliable
@@ -896,7 +894,7 @@ def register_stacks(stacks, ref, verbose):
       # Assuming we have a single Euler3DTransform, get it:
       transf_reg = sitk.CompositeTransform(transf_final)
       if transf_reg.GetNumberOfTransforms() > 1:
-        raise Exception("More than one transform in registartion transformation")
+        raise Exception("More than one transform in registration transformation")
       transf_reg = sitk.Euler3DTransform(transf_reg.GetNthTransform(0))
       # Get transformation matrix
       A = np.array(transf_reg.GetMatrix()).reshape(3,3)
@@ -932,7 +930,7 @@ def prostatex(args, sel_js):
     # Get Lesion info
     if args.verbose > 0:
       print(f"Loading {group} findings")
-    patient = {} # dict mapping patients to list of fiding ids
+    patient = {} # dict mapping patients to list of finding ids
     label = {} # label[PATIENT][FID] = label of FID
     with open(os.path.join(args.data, 'Lesions', f'ProstateX-Findings-{group}.csv')) as csvfile:
       findings = csv.reader(csvfile, delimiter=',')
@@ -957,17 +955,17 @@ def prostatex(args, sel_js):
         del patient[p[0]]
 
     # Get images info
-    slices = {} # slices[PATIENT][FID][NAME] = [i,j,k]
-    world_matrix = {} # world_matrix[PATIENT][PROTOCOL][FID] = Matrix
-    ser_num = {} # world_matrix[PATIENT][PROTOCOL][FID] = ser_num
-    pos = {} # pos[PATIENT][PROTOCOL][FID] = pos of FID
+    slices = {} # format: slices[PATIENT][FID][NAME] = [i,j,k]
+    world_matrix = {} # format: world_matrix[PATIENT][PROTOCOL][FID] = Matrix
+    ser_num = {} # format: world_matrix[PATIENT][PROTOCOL][FID] = ser_num
+    pos = {} # format: pos[PATIENT][PROTOCOL][FID] = pos of FID
     with open(os.path.join(args.data, 'Lesions', f'ProstateX-Images-{group}.csv')) as csvfile:
       if args.verbose > 0:
         print(f"Loading {group} images")
       images = csv.reader(csvfile, delimiter=',')
       # Process all images
       for row in images:
-        if row[0] != 'ProxID': # Sklip header
+        if row[0] != 'ProxID': # Skip header
           use = False
           row[1] = row[1].replace("_","").rstrip("0123456789")
           for pm in sel_js["protocol_map"]:
@@ -1047,7 +1045,7 @@ def prostatex(args, sel_js):
               folder_ser_num = ser_num[p][pm[1]][f]
               found = True
           if not found:
-            raise Exception(f"Protrocol {sname} not found in protocol_map")
+            raise Exception(f"Protocol {sname} not found in protocol_map")
           path = os.path.join(path,scan_dir)
           folder =None
           folder_num = None
@@ -1211,12 +1209,12 @@ def prostatex_slices(patient, samples_patient, ref_protocol, world_matrix_patien
                      mask_slice, force, check, verbose)
       # Masks for ProstateX Masks repo
       import nibabel as  nib
-      dir = os.path.dirname(samples_patient[finding][ref_protocol][0])
+      dir_name = os.path.dirname(samples_patient[finding][ref_protocol][0])
       while not os.path.isdir(os.path.join(dir,"PROSTATEx_masks")):
-        dir = os.path.dirname(dir)
-        if len(dir) < 2:
+        dir_name = os.path.dirname(dir_name)
+        if len(dir_name) < 2:
           raise Exception("PROSTATEx_masks not found")
-      dir = os.path.join(dir,"PROSTATEx_masks","Files")
+      dir_name = os.path.join(dir_name,"PROSTATEx_masks","Files")
       if ref_protocol == "t2-tra":
         prot_dir = "T2"
       elif ref_protocol == "adc":
@@ -1236,7 +1234,7 @@ def prostatex_slices(patient, samples_patient, ref_protocol, world_matrix_patien
             if tag not in rois:
               rois[tag] = []
             pattern = "ProstateX-"+pid[-4:]+"-Finding"+str(finding)+"-*_ROI.nii.gz"
-            path = os.path.join(dir,"lesions","Masks",prot_dir,pattern)
+            path = os.path.join(dir_name,"lesions","Masks",prot_dir,pattern)
             mask_files = glob.glob(path)
             if len(mask_files) == 0:
               print(f"Warning, ROI for {pattern} not found, skipping")
@@ -1274,19 +1272,19 @@ def prostatex_slices(patient, samples_patient, ref_protocol, world_matrix_patien
           fname = "ProstateX-"+pid[-4:]+".nii.gz"
         else:
           fname = "ProstateX-"+pid[-4:]+"_"+tag+".nii.gz"
-        mask_file = os.path.join(dir,"prostate","mask_"+tag,fname)
+        mask_file = os.path.join(dir_name,"prostate","mask_"+tag,fname)
         if not os.path.isfile(mask_file):
           if tag == "prostate":
             fname = "ProstateX-"+pid[-3:]+".nii.gz"
           else:
             fname = "ProstateX-"+pid[-3:]+"_"+tag+".nii.gz"
-          mask_file = os.path.join(dir,"prostate","mask_"+tag,fname)
+          mask_file = os.path.join(dir_name,"prostate","mask_"+tag,fname)
         if not os.path.isfile(mask_file):
           if tag == "prostate":
             fname = "VOLUME-"+pid[-4:]+".nii.gz"
           else:
             fname = "VOLUME-"+pid[-4:]+"_"+tag+".nii.gz"
-          mask_file = os.path.join(dir,"prostate","mask_"+tag,fname)
+          mask_file = os.path.join(dir_name,"prostate","mask_"+tag,fname)
         if not os.path.isfile(mask_file):
           print(f"Warning, {tag} mask for {fname} not found, skipping")
         else:

@@ -9,10 +9,10 @@
 #
 # This is quite specific to the Qyber\black archive structure, but
 # may help to set this up for other archives as well and sort the
-# data. This checks the file system hierarchy to follo our
+# data. This checks the file system hierarchy to follow our
 # GROUP/PATIENT/SESSION/SCAN/DICOM_FILE hierarchy and also checks for
-# duplicates and potential inconsistentcies. GROUP is arbitary, but often
-# the year. PATIENT is a patient idetnified, expected to start with P and
+# duplicates and potential inconsistencies. GROUP is arbitrary, but often
+# the year. PATIENT is a patient identified, expected to start with P and
 # followed by a zero-filled number. SESSION is a zero-filled 2-digit number
 # SCAN a zero-filled 4-digit number and DICOM_FILE has the filename
 # PATIENT-SESSION-SCAN.IMA. It's mostly for Siemens dicom files.
@@ -61,17 +61,17 @@ def main():
     exit(1)
 
   # Start folder scan
-  dir = os.path.normpath(args.path)
+  dir_name = os.path.normpath(args.path)
   if args.verbose > 0:
-    print("Checking data archive: " + os.path.basename(dir))
-  exit(check_scans(dir, "  ", args.fix, args.verbose))
+    print("Checking data archive: " + os.path.basename(dir_name))
+  exit(check_scans(dir_name, "  ", args.fix, args.verbose))
 
-def check_scans(dir, indent, fix, verbose):
+def check_scans(dir_name, indent, fix, verbose):
   # Check MRI image scan hierarchy
   err = 0
   patients = []
-  for fn in sorted(os.listdir(dir)):
-    path = os.path.join(dir,fn)
+  for fn in sorted(os.listdir(dir_name)):
+    path = os.path.join(dir_name,fn)
     if os.path.isdir(path):
       new_patients, ne = check_group(path, indent, fix, verbose)
       err += ne
@@ -91,43 +91,43 @@ def check_scans(dir, indent, fix, verbose):
           % (indent,len(patients)))
   return err
 
-def check_group(dir, indent, fix, verbose):
+def check_group(dir_name, indent, fix, verbose):
   # Check patients in MRI scan group hierarchy
   err = 0
   patients = []
-  for fn in sorted(os.listdir(dir)):
-    path = os.path.join(dir,fn)
+  for fn in sorted(os.listdir(dir_name)):
+    path = os.path.join(dir_name,fn)
     if os.path.isdir(path):
       if fn[0] != "P":
         err += 1
         print(("%s* %s/%s: " + colors.FAIL + "fail: not a patient id" + colors.END)
-              % (indent,os.path.basename(dir),fn))
+              % (indent,os.path.basename(dir_name),fn))
       else:
         if "-" in fn:
           fn_fix = fn.split("-")[0]
-          if fn_fix != fn or True:
+          if fn_fix != fn:
             err += 1
             print(("%s %s/%s: " + colors.FAIL + "fail: fix name" + colors.END
-                  + " -> %s") % (indent,os.path.basename(dir),fn,fn_fix))
+                  + " -> %s") % (indent,os.path.basename(dir_name),fn,fn_fix))
             if fix and len(fn_fix) > 0:
-              subprocess.run(["git", "mv", path, os.path.join(dir,fn_fix)])
+              subprocess.run(["git", "mv", path, os.path.join(dir_name,fn_fix)])
               fn = fn_fix
-              path = os.path.join(dir,fn_fix)
+              path = os.path.join(dir_name,fn_fix)
         err += check_patient(path, fn, indent, fix, verbose)
         patients.append(fn)
     else:
       err += 1
       print(("%s* %s/%s: " + colors.FAIL + "fail: file not allowed here" + colors.END)
-            % (indent,os.path.basename(dir),fn))
+            % (indent,os.path.basename(dir_name),fn))
   return patients, err
 
-def check_patient(dir, patient, indent, fix, verbose):
+def check_patient(dir_name, patient, indent, fix, verbose):
   # Check sessions in patient hierarchy
   err = 0
   files = []
   dirs = []
-  for fn in sorted(os.listdir(dir)):
-    path = os.path.join(dir,fn)
+  for fn in sorted(os.listdir(dir_name)):
+    path = os.path.join(dir_name,fn)
     if os.path.isdir(path):
       dirs.append(fn)
     elif os.path.isfile(path):
@@ -139,16 +139,16 @@ def check_patient(dir, patient, indent, fix, verbose):
       err += 1
       print(("%s* %s" + colors.FAIL + "fail: mixed files and folders" + colors.END)
             % (indent,patient))
-      check_bitmaps(dir, indent, verbose)
+      check_bitmaps(dir_name, indent, verbose)
     else:
       err += 1
       n = 1
-      new_session_name = ("%02" % n)
-      session_path = os.path.join(dir,nmew_session_name)
+      new_session_name = ("%02d" % n)
+      session_path = os.path.join(dir_name,new_session_name)
       while os.path.isdir(session_path):
         n += 1
-        new_session_name = ("%02" % n)
-        session_path = os.path.join(dir,nmew_session_name)
+        new_session_name = ("%02d" % n)
+        session_path = os.path.join(dir_name,new_session_name)
       print(("%s* %s" + colors.FAIL + "fail: no session folder" + colors.END + " -> mv %s/XXXX")
             % (indent,patient,new_session_name))
       if fix:
@@ -170,7 +170,7 @@ def check_patient(dir, patient, indent, fix, verbose):
                 subprocess.run(["mkdir", os.path.join(session_path,sf)])
                 subprocess.run(["git", "add", os.path.join(session_path,sf)])
               scan_folders.append(sf)
-            subprocess.run(["git", "mv", os.path.join(dir,f),
+            subprocess.run(["git", "mv", os.path.join(dir_name,f),
                            os.path.join(session_path,sf,f_fix)])
           else:
             print(("%s* %s" + colors.FAIL + "fail: strange name: %s" + colors.END)
@@ -182,15 +182,15 @@ def check_patient(dir, patient, indent, fix, verbose):
         err += 1
         print(("%s* %s/%s: " + colors.FAIL + "fail: multiple session instances" + colors.END)
               % (indent,patient,d))
-        check_bitmaps(dir, indent, verbose)
+        check_bitmaps(dir_name, indent, verbose)
       else:
-        err += check_session(os.path.join(dir,d), patient, d, indent, fix, verbose)
+        err += check_session(os.path.join(dir_name,d), patient, d, indent, fix, verbose)
   else:
     err += 1
     print(("%s* %s: " + colors.FAIL + "fail: empty patient folder" + colors.END) % (indent,dir))
   return err
 
-def check_session(dir, patient, session, indent, fix, verbose):
+def check_session(dir_name, patient, session, indent, fix, verbose):
   # Check scans in session hierarchy
   err = 0
   ref_rec = {}
@@ -203,8 +203,8 @@ def check_session(dir, patient, session, indent, fix, verbose):
           + colors.END) % (indent,patient,session))
   files = []
   dirs = []
-  for fn in sorted(os.listdir(dir)):
-    path = os.path.join(dir,fn)
+  for fn in sorted(os.listdir(dir_name)):
+    path = os.path.join(dir_name,fn)
     if os.path.isdir(path):
       dirs.append(fn)
     elif os.path.isfile(path):
@@ -216,7 +216,7 @@ def check_session(dir, patient, session, indent, fix, verbose):
       err += 1
       print(("%s* %s/%s: " + colors.FAIL + "fail: mixed files and folders"+ colors.END)
             % indent)
-      check_bitmaps(dir, indent, verbose)
+      check_bitmaps(dir_name, indent, verbose)
     else:
       err += 1
       print(("%s* %s/%s: " + colors.FAIL + "fail: files in session folder" + colors.END
@@ -233,16 +233,16 @@ def check_session(dir, patient, session, indent, fix, verbose):
               sf = fs[2]
               f_fix = patient+"-"+session+"-"+sf+"-"+fs[3]+"."+fs[-1]
             if sf not in scan_folders:
-              if not os.path.isdir(os.path.join(dir,sf)):
-                subprocess.run(["mkdir", os.path.join(dir,sf)])
-                subprocess.run(["git", "add", os.path.join(dir,sf)])
+              if not os.path.isdir(os.path.join(dir_name,sf)):
+                subprocess.run(["mkdir", os.path.join(dir_name,sf)])
+                subprocess.run(["git", "add", os.path.join(dir_name,sf)])
               scan_folders.append(sf)
-            subprocess.run(["git", "mv", os.path.join(dir,f), os.path.join(dir,sf,f_fix)])
+            subprocess.run(["git", "mv", os.path.join(dir_name,f), os.path.join(dir_name,sf,f_fix)])
           else:
             print(("%s* %s/%s: " + colors.FAIL + "fail: strange name: %s" + colors.END)
                   % (indent,f,patient,session))
         for d in scan_folders:
-          ne, rec = check_scan(os.path.join(dir,d), patient, session,
+          ne, rec = check_scan(os.path.join(dir_name,d), patient, session,
                                d, indent, fix, verbose)
           if ne == 0:
             if ref_rec == {}:
@@ -284,9 +284,9 @@ def check_session(dir, patient, session, indent, fix, verbose):
           print(("%s* %s/%s/%s: " + colors.FAIL + "fail: long scan folder name" + colors.END
                  + " -> %s") % (indent,patient,session,d,ds[-1]))
           if fix:
-            subprocess.run(["git", "mv", os.path.join(dir,d), os.path.join(dir,ds[-1])])
+            subprocess.run(["git", "mv", os.path.join(dir_name,d), os.path.join(dir_name,ds[-1])])
             d = ds[-1]
-      ne, rec = check_scan(os.path.join(dir,d), patient, session, d, indent, fix, verbose)
+      ne, rec = check_scan(os.path.join(dir_name,d), patient, session, d, indent, fix, verbose)
       if ne == 0:
         if ref_rec == {}:
           ref_rec = rec
@@ -328,7 +328,7 @@ def check_session(dir, patient, session, indent, fix, verbose):
             + colors.END) % (indent,patient,session,ref_rec['PatientName'],patient))
   return err
 
-def check_scan(dir, patient, session, scan, indent, fix, verbose):
+def check_scan(dir_name, patient, session, scan, indent, fix, verbose):
   # Check dicoms in scan
   err = 0
   try:
@@ -340,8 +340,8 @@ def check_scan(dir, patient, session, scan, indent, fix, verbose):
           + colors.END) % (indent,patient,session,scan))
   files = []
   dirs = []
-  for fn in sorted(os.listdir(dir)):
-    path = os.path.join(dir,fn)
+  for fn in sorted(os.listdir(dir_name)):
+    path = os.path.join(dir_name,fn)
     if os.path.isdir(path):
       dirs.append(fn)
     elif os.path.isfile(path):
@@ -391,7 +391,7 @@ def check_scan(dir, patient, session, scan, indent, fix, verbose):
             f_fix = patient+"-"+session+"-"+scan+"-"+fs[3]
             print("%s  -> %s" % (indent,f_fix))
             if fix:
-              subprocess.run(["git", "mv", os.path.join(dir,f), os.path.join(dir,f_fix)])
+              subprocess.run(["git", "mv", os.path.join(dir_name,f), os.path.join(dir_name,f_fix)])
       elif "." in f:
         err += 1
         print(("%s* %s/%s/%s/%s: " + colors.FAIL + "fail: broken filename" + colors.END)
@@ -404,7 +404,7 @@ def check_scan(dir, patient, session, scan, indent, fix, verbose):
             f_fix = patient+"-"+session+"-"+scan+"-"+fs[3]+"."+fs[-1]
           print("%s  -> %s" % (indent,f_fix))
           if fix:
-            subprocess.run(["git", "mv", os.path.join(dir,f), os.path.join(dir,f_fix)])
+            subprocess.run(["git", "mv", os.path.join(dir_name,f), os.path.join(dir_name,f_fix)])
       else:
         err += 1
         print(("%s* %s/%s/%s/%s: " + colors.FAIL + "fail: unknown filename" + colors.END)
@@ -413,16 +413,16 @@ def check_scan(dir, patient, session, scan, indent, fix, verbose):
     err += 1
     print(("%s* %s/%s/%s: " + colors.FAIL + "fail: empty scan folder" + colors.END)
           % (indent,patient,session,scan))
-  ne, ref_rec = check_dicoms(dir, patient, session, scan, indent, fix, verbose)
+  ne, ref_rec = check_dicoms(dir_name, patient, session, scan, indent, fix, verbose)
   err += ne
   return err, ref_rec
 
-def check_dicoms(dir, patient, session, scan, indent, fix, verbose):
+def check_dicoms(dir_name, patient, session, scan, indent, fix, verbose):
   err = 0
   dirs = []
   files = []
-  for fn in sorted(os.listdir(dir)):
-    path = os.path.join(dir,fn)
+  for fn in sorted(os.listdir(dir_name)):
+    path = os.path.join(dir_name,fn)
     if os.path.isdir(path):
       dirs.append(fn)
     elif os.path.isfile(path):
@@ -440,7 +440,7 @@ def check_dicoms(dir, patient, session, scan, indent, fix, verbose):
     if verbose > 0:
       print(out+" "*(max(0,out_len-len(out))),end='\r',flush=True)
     out_len = len(out)
-    path = os.path.join(dir, f)
+    path = os.path.join(dir_name, f)
     dicom, info = read_dicom(path)
     xxh.reset()
     try:
@@ -573,12 +573,12 @@ def check_dicoms(dir, patient, session, scan, indent, fix, verbose):
     del ref_rec["SeriesTime"]
   return err, ref_rec
 
-def check_bitmaps(dir, indent, verbose):
-  # Collect bitmaps from files where errors occured, to find duplicates
+def check_bitmaps(dir_name, indent, verbose):
+  # Collect bitmaps from files where errors occurred, to find duplicates
   dirs = []
   files = []
-  for fn in sorted(os.listdir(dir)):
-    path = os.path.join(dir,fn)
+  for fn in sorted(os.listdir(dir_name)):
+    path = os.path.join(dir_name,fn)
     if os.path.isdir(path):
       dirs.append(fn)
     elif os.path.isfile(path):
@@ -586,14 +586,14 @@ def check_bitmaps(dir, indent, verbose):
     else:
       raise Exception("Unknown file type: %s" % fnp)
 
-  out_base = indent+"#"+dir+"/"
+  out_base = indent+"#"+dir_name+"/"
   out_len = 0
   for f in sorted(files):
     out = out_base+f
     if verbose > 0:
       print(out+" "*(max(0,out_len-len(out))),end='\r',flush=True)
     out_len = len(out)
-    path = os.path.join(dir, f)
+    path = os.path.join(dir_name, f)
     dicom, info = read_dicom(path)
     xxh.reset()
     try:
@@ -608,7 +608,7 @@ def check_bitmaps(dir, indent, verbose):
       pass
 
   for d in dirs:
-    check_bitmaps(os.path.join(dir,d), indent, verbose)
+    check_bitmaps(os.path.join(dir_name,d), indent, verbose)
 
 if __name__ == '__main__':
   main()
