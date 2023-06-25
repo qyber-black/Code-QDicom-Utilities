@@ -150,21 +150,21 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
       if verbose > 0:
         print(f"# Patient {fold}/{p} ({session}) -- convert slices {min_slice}-{max_slice-1}")
       for num, proto in enumerate(stacks):
-        dim = stacks[proto].header.get_data_shape()
-        vs = stacks[proto].header.get_zooms() # Scaling/zooms from stack info
-        sx = dim[0] * vs[0] / target_dim[0]
-        sy = dim[1] * vs[1] / target_dim[1]
-        sz = dim[2] * vs[2] / target_dim[2]
         # Transform stack to target orientation and resolution (t2w stack)
         if proto == "t2w": # Reference frame, so no need to convert
           X = stacks[proto].get_fdata().astype(np.float32)
         else:
+          dim = stacks[proto].header.get_data_shape()
+          vs = stacks[proto].header.get_zooms() # Scaling/zooms from stack info
+          sx = dim[0] * vs[0] / target_dim[0]
+          sy = dim[1] * vs[1] / target_dim[1]
+          sz = dim[2] * vs[2] / target_dim[2]
           transf_stack = nibp.conform(stacks[proto], out_shape=target_dim, voxel_size=(sx,sy,sz), orientation='LPS')
           X = transf_stack.get_fdata().astype(np.float32)
         # Save transformed stack as numpy and png
         fn_base = os.path.join(outdir,f"{p}-{session_num+1:02d}-{num+1:04d}")
         if proto == "hbv":
-          proto_str = "dwi_c-1000" # computed dwi >= 1000 (also called high-b-value, but for consistency with other data renamed)
+          proto_str = "dwi_c-1000" # computed dwi >= 1000 (also called high-b-value, but for consistency with other datasets we rename)
         elif proto == "cor":
           proto_str = "t2-cor" # rename for consistency
         elif proto == "sag":
