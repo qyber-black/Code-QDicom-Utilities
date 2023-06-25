@@ -45,7 +45,7 @@ def main():
   parser.add_argument('-a', '--all-slices', action='store_true', help='Convert all slices, not only prostate slices')
   parser.add_argument('-m', '--modalities', type=lambda x : x.lower(), nargs='+',
                       default=sorted(['t2w', 'adc', 'hbv', 'prostate', 'pirads']),
-                      choices=['t2w', 'adc', 'hbv', 'cor', 'sag', 'prosate', 'pirads', 'suspicious', 'normal'],
+                      choices=['t2w', 'adc', 'hbv', 'cor', 'sag', 'prostate', 'pirads', 'suspicious', 'normal'],
                       help='Select modalities and masks to convert from t2w, adc, hbv, cor, sag, prostate, pirads, suspicious, normal; make sure t2w is always selected as it is reference frame')
   parser.add_argument('-p', '--disable-parallel', action='store_true', help='Do not execute in parallel (disable for testing, etc)')
   parser.add_argument('-v', '--verbose', action='count', help='Increase output verbosity', default=0)
