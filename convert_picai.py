@@ -162,7 +162,7 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
           transf_stack = nibp.conform(stacks[proto], out_shape=target_dim, voxel_size=(sx,sy,sz), orientation='LPS')
           X = transf_stack.get_fdata().astype(np.float32)
         # Save transformed stack as numpy and png
-        fn_base = os.path.join(outdir,f"{p}-{session_num+1:02d}-{num+1:04d}")
+        fn_base = os.path.join(outdir,f"{p}-{session_num+1:02d}-0001") # Use 0001 as reference slice number (assumed all aligned)
         if proto == "hbv":
           proto_str = "dwi_c-1000" # computed dwi >= 1000 (also called high-b-value, but for consistency with other datasets we rename)
         elif proto == "cor":
@@ -198,7 +198,7 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
         for slice in range(min_slice,max_slice):
           if 'pirads' in modalities:
             # PI-RADS rating
-            fn = os.path.join(outdir,f"{p}-{session_num+1:02d}-9999-{slice:04d}-pirads")
+            fn = os.path.join(outdir,f"{p}-{session_num+1:02d}-0001-{slice:04d}-pirads")
             XX = np.copy(X[:,:,slice])
             np.save(fn+".npy", XX, allow_pickle=False)
             # PIRADS PNG
@@ -210,7 +210,7 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
             Image.fromarray(XX.astype(np.uint8)).save(fn+".png", optimize=True, bits=8)
           if 'suspicious' in modalities:
             # cs-PCa as suspicious map (it's cs-PCa if PIRADS is 3,4,5; see PI-CAI doc)
-            fns = os.path.join(outdir,f"{p}-{session_num+1:02d}-9998-{slice:04d}-suspicious")
+            fns = os.path.join(outdir,f"{p}-{session_num+1:02d}-0001-{slice:04d}-suspicious")
             XX = np.copy(X[:,:,slice])
             XX[XX<3] = 0
             XX[XX>2] = 1
@@ -224,7 +224,7 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
             Image.fromarray(XX.astype(np.uint8)).save(fns+".png", optimize=True, bits=8)
           if 'normal' in modalities:
             # cs-PCa as normal map (it's cs-PCa if PIRADS is 1,2; see PI-CAI doc)
-            fns = os.path.join(outdir,f"{p}-{session_num+1:02d}-9997-{slice:04d}-normal")
+            fns = os.path.join(outdir,f"{p}-{session_num+1:02d}-0001-{slice:04d}-normal")
             XX = np.copy(X[:,:,slice])
             XX[XX>2] = 0
             XX[XX>0] = 1
@@ -239,7 +239,6 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
 
       # Anatomical AI delineation for whole gland, for t2w (so no transf. needed)
       if 'prostate' in modalities:
-        scanid = 9800
         for src in ['Bosma22b', 'Guerbet23']:
           if verbose > 0:
             print(f"# Patient {fold}/{p} ({session}) -- prostate labels {src}")
@@ -247,7 +246,7 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
           if os.path.isfile(path): # if not, means we have no data
             prostate = nib.load(path)
             X = prostate.get_fdata().astype(np.uint8)
-            fn_base = os.path.join(outdir,f"{p}-{session_num+1:02d}-{scanid}")
+            fn_base = os.path.join(outdir,f"{p}-{session_num+1:02d}-0001")
             for slice in range(min_slice,max_slice):
               # Prostate mask
               fn = fn_base + f"-{slice:04d}-prostate:{src}"
@@ -260,9 +259,7 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
                 XX = ((XX - dmin) / (dmax - dmin))
               XX *= (2**8-1)
               Image.fromarray(XX.astype(np.uint8)).save(fn+".png", optimize=True, bits=8)
-          scanid += 1
       if 'pztz' in modalities:
-        scanid = 9900
         for src in ['HeviAI23', 'Yuan23']:
           if verbose > 0:
             print(f"# Patient {fold}/{p} ({session}) -- pztz labels {src}")
@@ -270,7 +267,7 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
           if os.path.isfile(path): # if not, means we have no data
             prostate = nib.load(path)
             X = prostate.get_fdata().astype(np.uint8)
-            fn_base = os.path.join(outdir,f"{p}-{session_num+1:02d}-{scanid}")
+            fn_base = os.path.join(outdir,f"{p}-{session_num+1:02d}-0001")
             for slice in range(min_slice,max_slice):
               if slice < X.shape[-1]: # pztz may have fewer slices
                 # PZTZ mask
