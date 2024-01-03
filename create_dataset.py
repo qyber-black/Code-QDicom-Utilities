@@ -6,7 +6,7 @@
 # once. It's also messy across the different datasets, but still serves as a
 # record of how we processed them.
 #
-# SPDX-FileCopyrightText: Copyright (C) 2021-2022 Frank C Langbein <frank@langbein.org>, Cardiff University
+# SPDX-FileCopyrightText: Copyright (C) 2021-2022,2024 Frank C Langbein <frank@langbein.org>, Cardiff University
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
 # Usage example:
@@ -20,8 +20,6 @@
 #   "dataset": "DATASET",
 #   "width": SCALE_WIDTH,
 #   "height": SCALE_HEIGHT,
-#
-#
 #   "slices": [
 #     ["PATIENT", "SESSION", "SCAN", "SLICE"],
 #     ...
@@ -30,9 +28,8 @@
 #   "register": BOOL,
 #   "protocols": [ "PROTOCOL1", "PROTOCOL2", ... ],
 #   "compute": [ "COMPUTE1", "COMPUTE2", ... ],
+#   "matrix": BOOL,
 #   "tags": [ "TAG1", "TAG2", ... ]
-#
-#
 #   "ref_protocol": "OUR_NAME",
 #   "protocol_map": [
 #     ["PROSTATEX_NAME1", "OUR_NAME1"],
@@ -79,6 +76,7 @@
 #              adc_q    - quadratic adc match with kurtosis and residual
 #              dwi_c-X  - high B-field computed dwi for B=X for linear adc
 #              dwi_cq-X - high B-field computed dwi for B=X for quadratic adc
+# * matrix: create matrix of all images (boolean)
 # * tags: produces masks for specified tags; can specify extended tag with ":" such
 #         as "suspicious:ext" for exact match or just a tag with a ":" extension,
 #         which matches all tags, independent of the extension.
@@ -244,48 +242,49 @@ def process_patient(data, patient, ps, sel_js, density, out, force, check, verbo
                      ref_slice[1], ref_slice[2], ref_slice[3], sel_js['width'], sel_js['height'], int(ref_slice[4]),
                      ref_transf_slice2patient, ref_size, density,
                      force, check, verbose)
-    # Create slice matrix
-    if verbose > 0:
-      print("  Slice matrix")
-    sns = sorted(glob.glob(os.path.join(out_dir,f"{ps}-{ref_slice[3]}-{ref_slice[4]}-*.png")))
-    img = {}
-    for l  in range(0,len(sns)):
-      proto = sns[l].split("-")[3:]
-      proto[-1] = proto[-1].split(".")[0]
-      k = "-".join(proto)
-      if proto[-1] != "all":
-        img[k] = Image.open(sns[l]).point(lambda p: p*0.00390630960555428397, mode='RGB').convert('RGB')
-    keys = sorted(img.keys())
-    l = len(keys)
-    img_w = sel_js['width']+4
-    img_h = sel_js['height']+4
-    img_matrix = Image.new('RGB', (l*img_w,l*img_h))
-    sz = 40
-    for r in range(0,l):
-      for c in range(0,l):
-        pos = (c*img_w+2,r*img_h+2)
-        if r == c:
-          img_matrix.paste(img[keys[r]],pos)
-        elif r > c:
-          h = Image.new("RGB", img[keys[r]].size, "black")
-          rr,_,bb = h.split()
-          _,gg,_ = img[keys[r]].split()
-          h = Image.merge('RGB',(rr,gg,bb))
-          img_matrix.paste(Image.blend(h,img[keys[c]],alpha=0.5), pos)
-        else:
-          mask = Image.new("L", img[keys[r]].size, "black")
-          dr = ImageDraw.Draw(mask)
-          for x in range(0,mask.size[0]//sz+1):
-            for y in range(0,mask.size[1]//sz+1):
-              if (x+y) % 2 == 0:
-                dr.rectangle([(x*sz,y*sz),(sz+x*sz,sz+y*sz)], fill="white", outline=128)
-          img_matrix.paste(Image.composite(img[keys[r]],img[keys[c]],mask), pos)
-    dr = ImageDraw.Draw(img_matrix)
-    for x in range(0,img_matrix.size[0]//img_w+1):
-      dr.line([(x*img_w-1,0),(x*img_w-1,img_matrix.size[1])],width=2,fill=(96,96,128))
-    for y in range(0,img_matrix.size[1]//img_h+1):
-      dr.line([(0,y*img_h-1),(img_matrix.size[0],y*img_h-1)],width=2,fill=(96,96,128))
-    img_matrix.save(os.path.join(out_dir,f"{ps}-{ref_slice[3]}-{ref_slice[4]}-all.png"), optimize=True)
+    if 'matrix' in sel_js and sel_js['matrix']:
+      # Create slice matrix
+      if verbose > 0:
+        print("  Slice matrix")
+      sns = sorted(glob.glob(os.path.join(out_dir,f"{ps}-{ref_slice[3]}-{ref_slice[4]}-*.png")))
+      img = {}
+      for l  in range(0,len(sns)):
+        proto = sns[l].split("-")[3:]
+        proto[-1] = proto[-1].split(".")[0]
+        k = "-".join(proto)
+        if proto[-1] != "all":
+          img[k] = Image.open(sns[l]).point(lambda p: p*0.00390630960555428397, mode='RGB').convert('RGB')
+      keys = sorted(img.keys())
+      l = len(keys)
+      img_w = sel_js['width']+4
+      img_h = sel_js['height']+4
+      img_matrix = Image.new('RGB', (l*img_w,l*img_h))
+      sz = 40
+      for r in range(0,l):
+        for c in range(0,l):
+          pos = (c*img_w+2,r*img_h+2)
+          if r == c:
+            img_matrix.paste(img[keys[r]],pos)
+          elif r > c:
+            h = Image.new("RGB", img[keys[r]].size, "black")
+            rr,_,bb = h.split()
+            _,gg,_ = img[keys[r]].split()
+            h = Image.merge('RGB',(rr,gg,bb))
+            img_matrix.paste(Image.blend(h,img[keys[c]],alpha=0.5), pos)
+          else:
+            mask = Image.new("L", img[keys[r]].size, "black")
+            dr = ImageDraw.Draw(mask)
+            for x in range(0,mask.size[0]//sz+1):
+              for y in range(0,mask.size[1]//sz+1):
+                if (x+y) % 2 == 0:
+                  dr.rectangle([(x*sz,y*sz),(sz+x*sz,sz+y*sz)], fill="white", outline=128)
+            img_matrix.paste(Image.composite(img[keys[r]],img[keys[c]],mask), pos)
+      dr = ImageDraw.Draw(img_matrix)
+      for x in range(0,img_matrix.size[0]//img_w+1):
+        dr.line([(x*img_w-1,0),(x*img_w-1,img_matrix.size[1])],width=2,fill=(96,96,128))
+      for y in range(0,img_matrix.size[1]//img_h+1):
+        dr.line([(0,y*img_h-1),(img_matrix.size[0],y*img_h-1)],width=2,fill=(96,96,128))
+      img_matrix.save(os.path.join(out_dir,f"{ps}-{ref_slice[3]}-{ref_slice[4]}-all.png"), optimize=True)
   if verbose == -1: # parallel
     print(f"Stopping {ps}")
 
