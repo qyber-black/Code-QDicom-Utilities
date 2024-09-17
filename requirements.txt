@@ -2,7 +2,7 @@
 #
 # SPDX-FileCopyrightText: Copyright (C) 2021-2022 Frank C Langbein <frank@langbein.org>, Cardiff University
 # SPDX-License-Identifier: AGPL-3.0-or-later
-pydicom>=2.2.2
+pydicom>=2.2.2,<3
 numpy>=1.22.2
 matplotlib>=3.5.1
 xxhash>=2.0.2
