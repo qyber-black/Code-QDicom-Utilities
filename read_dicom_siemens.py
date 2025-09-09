@@ -30,6 +30,11 @@ TAG_SPECTROSCOPY_DATA    = (0x7fe1, 0x1010)
 TAG_SPECTROSCOPY_DATA_VB = (0x5600, 0x0020)
 
 def main():
+  """Main function to parse arguments and process DICOM files.
+
+  Processes command line arguments and displays or writes DICOM information,
+  images, and spectroscopy data from Siemens IMA files.
+  """
   p = argparse.ArgumentParser(description='Display/write DICOM info/image, specifically for Siemens IMA files')
   p.add_argument('-c','--cmap', action='store_true', help='display color dicom image (or write to _cmap.png file if -w is given, overwrites files)')
   p.add_argument('-g','--gray', action='store_true', help='display gray dicom image (or write to _gray.png file if -w is given, overwrites files)')
@@ -51,6 +56,16 @@ def main():
         display_dicom(d,args.write,args.cmap,args.gray,args.overlay,args.spectrum)
 
 def process_dir(dir,write,cmap,gray,overaly,spectrum):
+  """Recursively process a directory for DICOM files.
+
+  Args:
+      dir (str): Directory path to scan
+      write (bool): Whether to write output files
+      cmap (bool): Whether to display color images
+      gray (bool): Whether to display grayscale images
+      overaly (bool): Whether to display overlays
+      spectrum (bool): Whether to display spectrum data
+  """
   # Scan directory for dicoms and process them
   for d in sorted(os.listdir(dir)):
     p = os.path.join(dir,d)
@@ -60,6 +75,12 @@ def process_dir(dir,write,cmap,gray,overaly,spectrum):
       display_dicom(p,write,cmap,gray,overaly,spectrum)
 
 def pretty_dict(d, indent=0):
+  """Pretty print a dictionary with indentation.
+
+  Args:
+      d (dict): Dictionary to print
+      indent (int, optional): Indentation level. Defaults to 0
+  """
   # Pretty print dict
   for key, value in d.items():
     print('\t' * indent + str(key))
@@ -69,6 +90,16 @@ def pretty_dict(d, indent=0):
       print('\t' * (indent+1) + str(value) + ":" + str(type(value)))
 
 def display_dicom(filename,write,cmap,gray,overlay,spectrum):
+  """Display or save DICOM information and visualizations.
+
+  Args:
+      filename (str): DICOM file path
+      write (bool): Whether to write output files
+      cmap (bool): Whether to display color images
+      gray (bool): Whether to display grayscale images
+      overlay (bool): Whether to display overlays
+      spectrum (bool): Whether to display spectrum data
+  """
   # Display/save dicom information
   print("Processing %s" % filename)
   dicom, result = read_dicom(filename)
@@ -146,6 +177,14 @@ def display_dicom(filename,write,cmap,gray,overlay,spectrum):
         plt.show()
 
 def dicom_elements(ds):
+  """Extract non-binary DICOM elements with filtering.
+
+  Args:
+      ds: DICOM dataset
+
+  Returns:
+      dict: Dictionary of filtered DICOM elements
+  """
   # Extract non-binary dicom elements; filtered
   dont = ['PixelData', 'Overlay Data', 'DataSetTrailingPadding',
           '(7fe1, 0010)', '[CSA Data]',
@@ -196,7 +235,7 @@ def dicom_elements(ds):
     elif key in ["[SlicePosition_PCS]", "[BandwidthPerPixelPhaseEncode]", "[DiffusionGradientDirection]", "[B_matrix]"]:
       if value is not None:
         value = struct.unpack('d'*(len(de.value)//8), de.value)
-    elif not key in dont:
+    elif key not in dont:
       ##print(key+":"+str(de.value))
       if de.VR == "SQ":
         value = []
@@ -233,6 +272,14 @@ def dicom_elements(ds):
   return contents
 
 def read_dicom(filename):
+  """Read DICOM file and parse Siemens headers.
+
+  Args:
+      filename (str): Path to DICOM file
+
+  Returns:
+      tuple: (dicom_dataset, info_dict) containing the DICOM data and parsed information
+  """
   # Read dicom file and also parse Siemens headers
   dicom = pydicom.read_file(filename)
   info = dicom_elements(dicom)
@@ -240,6 +287,16 @@ def read_dicom(filename):
   return dicom, info
 
 def get_tag(dataset, tag, default=None):
+  """Get a tag value from DICOM dataset with default.
+
+  Args:
+      dataset: DICOM dataset
+      tag (tuple): DICOM tag as (group, element) tuple
+      default: Default value if tag is missing. Defaults to None
+
+  Returns:
+      Tag value or default if not found or empty
+  """
   # Get tag from dataset, with default
   if tag not in dataset:
     return default
@@ -248,6 +305,14 @@ def get_tag(dataset, tag, default=None):
   return dataset[tag].value
 
 def parse_protocol(protocol_data):
+  """Parse Siemens protocol header from CSA data.
+
+  Args:
+      protocol_data (str): Raw protocol data string
+
+  Returns:
+      dict: Parsed protocol information as nested dictionary
+  """
   # Parse Siemens protocol header
   protocol_data = bytes(protocol_data, encoding="utf-8")
   start = protocol_data.find(b"### ASCCONV BEGIN")
@@ -270,6 +335,16 @@ def parse_protocol(protocol_data):
   return protocol
 
 def add_to_dict(fs,v,d):
+  """Add entry from Siemens protocol header to nested dictionary.
+
+  Args:
+      fs (list): List of field names forming the path
+      v (str): Value to add
+      d (dict): Dictionary to add to
+
+  Returns:
+      dict: Updated dictionary
+  """
   # Extract and add entry from siemens protocol header to dict
   if fs == []:
     return v
@@ -277,7 +352,7 @@ def add_to_dict(fs,v,d):
     return add_to_dict(fs[1:],v,d)
   match = re.fullmatch(r'(.*)\[([0-9]+)\]', fs[0])
   if match:
-    if not match.group(1) in d:
+    if match.group(1) not in d:
       d[match.group(1)] = {} # Not a list, as indices unpredictable
     d[match.group(1)][match.group(2)] = conv_val(v)
   else:
@@ -291,6 +366,14 @@ def add_to_dict(fs,v,d):
   return d
 
 def conv_val(v):
+  """Convert value to appropriate Python type.
+
+  Args:
+      v: Value to convert (string, bytes, etc.)
+
+  Returns:
+      Converted value (int, float, string, or original)
+  """
   # Helper to convert value
   try:
     num = int(v)
@@ -310,6 +393,18 @@ def conv_val(v):
   return v
 
 def parse_csa_header(tag, little_endian = True):
+  """Parse Siemens CSA header information.
+
+  Parser based on Grassroots DICOM code - GDCM.
+  Parses the undocumented Siemens CSA header format.
+
+  Args:
+      tag: DICOM tag containing CSA header data
+      little_endian (bool, optional): Whether data is little endian. Defaults to True
+
+  Returns:
+      dict: Parsed CSA header elements
+  """
   # Parse Siemens CSA header info
   #
   # Parser based on Grassroots DICOM code - GDCM:
@@ -331,7 +426,7 @@ def parse_csa_header(tag, little_endian = True):
   #   ASCII 'M' and 0xcd = 205 which has no ASCII representation.
   # - Strings in the data are C-style NULL terminated.
 
-  DELIMITERS = ("M", "\xcd", 0x4d, 0xcd)
+  #DELIMITERS = ("M", "\xcd", 0x4d, 0xcd)
   elements = { }
 
   current = 0
@@ -408,12 +503,20 @@ def parse_csa_header(tag, little_endian = True):
       if isinstance(values[0], bytes):
         values = [v.decode('utf-8') for v in values]
 
-    if values != None and values != "":
+    if values is not None and values != "":
       elements[name.decode('utf-8')] = values
 
   return elements
 
 def scrub(item):
+  """Clean up bytes from CSA header.
+
+  Args:
+      item: Item to clean (bytes or other)
+
+  Returns:
+      Cleaned item with null termination and stripping applied
+  """
   # Cleanup bytes from CSA header
   if isinstance(item, bytes):
     # Ensure null-termination:
@@ -425,6 +528,20 @@ def scrub(item):
     return item
 
 def get_chunks(tag, index, format_str, little_endian=True):
+  """Extract structured data chunks from CSA header.
+
+  Args:
+      tag: DICOM tag data
+      index (int): Starting index in the data
+      format_str (str): Struct format string
+      little_endian (bool, optional): Whether data is little endian. Defaults to True
+
+  Returns:
+      tuple: (size, chunks) where size is bytes consumed and chunks is list of extracted data
+
+  Raises:
+      ValueError: If chunk is broken or extends beyond data
+  """
   # Get chunk from CSA header
   format_str = ('<' if little_endian else '>') + format_str
   size = struct.calcsize(format_str)

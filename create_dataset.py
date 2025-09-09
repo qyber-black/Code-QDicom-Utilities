@@ -107,6 +107,11 @@ import scipy.ndimage as ndi
 from read_dicom_siemens import read_dicom
 
 def main():
+  """Main function to parse arguments and create dataset.
+
+  Parses command line arguments and calls appropriate dataset creation
+  function based on the dataset type specified in the selection file.
+  """
   # Parse arguments
   parser = argparse.ArgumentParser()
   parser.add_argument('-d', '--data', type=str, help='Folder with the dicom files (structure: GROUP/PATIENT/SESSION/SCAN/PATIENT-SESSION-SCAN-SLICE.IMA')
@@ -119,13 +124,13 @@ def main():
   args = parser.parse_args()
 
   # Check arguments
-  if args.data == None or not os.path.isdir(args.data):
+  if args.data is None or not os.path.isdir(args.data):
     print('Dicom folder not specified or is not a directory: %s' % args.data)
     exit(1)
-  if args.select == None or not os.path.isfile(args.select):
+  if args.select is None or not os.path.isfile(args.select):
     print('Selection file not specified or does not exist: %s' % args.select)
     exit(1)
-  if args.out == None:
+  if args.out is None:
     print('Dataset folder not specified')
     exit(1)
 
@@ -144,6 +149,12 @@ def main():
     raise Exception(f"Unknown dataset {sel_js['dataset']}")
 
 def swansea_pca(args, sel_js):
+  """Process Swansea-PCA dataset.
+
+  Args:
+      args: Command line arguments
+      sel_js (dict): Selection configuration from JSON file
+  """
   # Collect slices for the same patient-session for swansea-pca
   patient = {}
   for slice in sel_js['slices']:
@@ -176,6 +187,19 @@ def swansea_pca(args, sel_js):
                 for ps in patient)
 
 def process_patient(data, patient, ps, sel_js, density, out, force, check, verbose):
+  """Process all slices for a patient.
+
+  Args:
+      data (str): Path to data directory
+      patient (list): List of patient slice information
+      ps (str): Patient-session identifier
+      sel_js (dict): Selection configuration
+      density (int): Sampling density
+      out (str): Output directory
+      force (bool): Force overwrite existing files
+      check (bool): Check for differences before overwriting
+      verbose (int): Verbosity level
+  """
   # Process all slices for the patient
   if verbose > 0:
     print(f"# {ps}")
@@ -289,6 +313,16 @@ def process_patient(data, patient, ps, sel_js, density, out, force, check, verbo
     print(f"Stopping {ps}")
 
 def get_slice(dir_name,slice_num,verbose):
+  """Load a DICOM slice and compute transformation matrix.
+
+  Args:
+      dir_name (str): Directory containing DICOM files
+      slice_num (str): Slice number to load
+      verbose (int): Verbosity level
+
+  Returns:
+      tuple: (dicom_object, info_dict, transformation_matrix, size) or (None, None, None, None) if not found
+  """
   path, scan = os.path.split(dir_name)
   path, session = os.path.split(path)
   path, patient = os.path.split(path)
@@ -367,6 +401,20 @@ def get_slice(dir_name,slice_num,verbose):
   return dicom0, info0, transf_slice2patient, size
 
 def get_stacks(patient_base, protocols, ref_scan, verbose):
+  """Load DICOM stacks for specified protocols.
+
+  Args:
+      patient_base (str): Base directory for patient data
+      protocols (list): List of protocol names to load
+      ref_scan (str): Reference scan identifier
+      verbose (int): Verbosity level
+
+  Returns:
+      dict: Dictionary mapping protocol names to stack information
+
+  Raises:
+      Exception: If required protocols are not found or have issues
+  """
   # Load dicom stacks for protocols
   stacks = {}
   # Parse stacks
@@ -407,7 +455,7 @@ def get_stacks(patient_base, protocols, ref_scan, verbose):
           else:
             raise Exception(f"Unknown protocol {org_protocol}")
           # Ensure we load reference stack and it has a protocol
-          if ref_scan == scan and protocol == None:
+          if ref_scan == scan and protocol is None:
             raise Exception("Unknown protocol for reference slice stack")
           if protocol in stacks:
             # Check if duplicate (we always pick the first, but warn)
@@ -450,6 +498,34 @@ def create_slice(output, stack, first_slice, stack_scan, info, transf_stack2pati
                  patient, session, scan, width, height, ref_slice_scan,
                  ref_slice_num, ref_transf_slice2patient, ref_size,
                  density, force, check, verbose):
+  """Create a specific channel slice in dataset from reference slice.
+
+  Args:
+      output (str): Output directory
+      stack (numpy.ndarray): Image stack data
+      first_slice (int): First slice number in stack
+      stack_scan (str): Stack scan identifier
+      info (dict): DICOM information dictionary
+      transf_stack2patient (numpy.matrix): Stack to patient transformation
+      protocol (str): Protocol name
+      protocol_ext (str): Protocol extension
+      patient (str): Patient identifier
+      session (str): Session identifier
+      scan (str): Scan identifier
+      width (int): Output width
+      height (int): Output height
+      ref_slice_scan (str): Reference slice scan
+      ref_slice_num (int): Reference slice number
+      ref_transf_slice2patient (numpy.matrix): Reference slice transformation
+      ref_size (tuple): Reference slice size
+      density (int): Sampling density
+      force (bool): Force overwrite
+      check (bool): Check before overwrite
+      verbose (int): Verbosity level
+
+  Raises:
+      Exception: If required information is missing or invalid
+  """
   # Create specific channel slice in dataset from reference slice
 
   # Bits known?
@@ -517,6 +593,25 @@ def create_slice(output, stack, first_slice, stack_scan, info, transf_stack2pati
 
 def extract_slice(stack, transf_stack2patient, width, height, ref_transf_slice2patient,
                   ref_size, ref_slice_scan, ref_slice_num, scan, first_slice, density, verbose):
+  """Extract a slice from a stack with resampling if necessary.
+
+  Args:
+      stack (numpy.ndarray): Image stack
+      transf_stack2patient (numpy.matrix): Stack to patient transformation
+      width (int): Output width
+      height (int): Output height
+      ref_transf_slice2patient (numpy.matrix): Reference transformation
+      ref_size (tuple): Reference size
+      ref_slice_scan (str): Reference slice scan
+      ref_slice_num (int): Reference slice number
+      scan (str): Current scan identifier
+      first_slice (int): First slice number
+      density (int): Sampling density for resampling
+      verbose (int): Verbosity level
+
+  Returns:
+      numpy.ndarray: Extracted slice data
+  """
   # We are extracting from the reference slice at same resolution, so just copy it out
   if int(ref_slice_scan) == int(scan) and ref_size == (width,height):
     if verbose > 0:
@@ -590,6 +685,25 @@ def extract_slice(stack, transf_stack2patient, width, height, ref_transf_slice2p
 
 def compute_slice(output, compute, patient, session, scan, width, height, ref_slice_num,
                   ref_transf_slice2patient, ref_size, density, bits, force, check, verbose):
+  """Compute derived slices from DWI data (ADC and high b-value).
+
+  Args:
+      output (str): Output directory
+      compute (list): List of computations to perform
+      patient (str): Patient identifier
+      session (str): Session identifier
+      scan (str): Scan identifier
+      width (int): Output width
+      height (int): Output height
+      ref_slice_num (int): Reference slice number
+      ref_transf_slice2patient (numpy.matrix): Reference transformation
+      ref_size (tuple): Reference size
+      density (int): Sampling density
+      bits (int): Number of bits for normalization
+      force (bool): Force overwrite
+      check (bool): Check before overwrite
+      verbose (int): Verbosity level
+  """
   # Compute slices from those extracted (from dwi data) - ADC and high b-value DWI
 
   # Max value from number of bits
@@ -681,6 +795,26 @@ def compute_slice(output, compute, patient, session, scan, width, height, ref_sl
 def generate_masks(output, stacks, tags, patient_base,
                    patient, session, scan, width, height, ref_slice_num,
                    ref_transf_slice2patient, ref_size, density, force, check, verbose):
+  """Generate masks for specified annotation tags.
+
+  Args:
+      output (str): Output directory
+      stacks (dict): Dictionary of loaded stacks
+      tags (list): List of annotation tags to process
+      patient_base (str): Base directory for patient
+      patient (str): Patient identifier
+      session (str): Session identifier
+      scan (str): Scan identifier
+      width (int): Output width
+      height (int): Output height
+      ref_slice_num (int): Reference slice number
+      ref_transf_slice2patient (numpy.matrix): Reference transformation
+      ref_size (tuple): Reference size
+      density (int): Sampling density
+      force (bool): Force overwrite
+      check (bool): Check before overwrite
+      verbose (int): Verbosity level
+  """
   # Create masks for specified tags
   tags = [t.lower() for t in tags]
 
@@ -704,7 +838,7 @@ def generate_masks(output, stacks, tags, patient_base,
             # If : is not in tag, we accept any tag matching part before ":" (if there is)
             ptag = p['tag'].lower().split(":")[0]
           if ptag == t:
-            if not ptag in rois:
+            if ptag not in rois:
               rois[ptag] = []
             rois[ptag].append({"x":p['x'], "y":p['y'], "slice":p['slice']})
             if verbose > 0:
@@ -736,6 +870,14 @@ def generate_masks(output, stacks, tags, patient_base,
       save_slice(output, f"{patient}-{session}-{scan}-{ref_slice_num:04d}-{t}", mask_slice, force, check, verbose)
 
 def draw_roi(rx,ry,mask,transf):
+  """Draw region of interest polygon in mask.
+
+  Args:
+      rx (list): X coordinates of polygon vertices
+      ry (list): Y coordinates of polygon vertices
+      mask (numpy.ndarray): Mask array to draw into
+      transf (numpy.matrix): Transformation matrix
+  """
   # Draw region of interest in mask; intersect with slice at z=0
   rx.append(rx[0])
   ry.append(ry[0])
@@ -813,9 +955,27 @@ def draw_roi(rx,ry,mask,transf):
       mask[rs,cs] = 1.0
 
 def register_stacks(stacks, ref, verbose):
+  """Register image stacks to a reference stack.
+
+  Args:
+      stacks (dict): Dictionary of image stacks
+      ref (str): Reference stack name
+      verbose (int): Verbosity level
+
+  Raises:
+      Exception: If registration fails or required information is missing
+  """
   import SimpleITK as sitk
 
   def get_transf(stack):
+    """Get transformation from stack to patient space.
+
+    Args:
+        stack (dict): Stack dictionary
+
+    Returns:
+        sitk.AffineTransform: Transformation matrix
+    """
     # Get transformation from stack to patient space (used as virtual image space for registration)
     # We need the inverse as the mapping is from the virtual domain to the image domain
     transf = stack["transf"]
@@ -916,6 +1076,12 @@ def register_stacks(stacks, ref, verbose):
         print(f"      Stop: {registration.GetOptimizerStopConditionDescription()}")
 
 def prostatex(args, sel_js):
+  """Process ProstateX dataset.
+
+  Args:
+      args: Command line arguments
+      sel_js (dict): Selection configuration from JSON file
+  """
   # Collect slices for the same patient-session for prostatex
   #
   # For now we use the computed slices (ADC, high b-field) only as given in the
@@ -1129,6 +1295,28 @@ def prostatex(args, sel_js):
 def prostatex_slices(patient, samples_patient, ref_protocol, world_matrix_patient,
                      pos_patient, label_patient, group, mask_d, width, height, density,
                      out, force, check, verbose=0):
+  """Process slices for a ProstateX patient.
+
+  Args:
+      patient (str): Patient identifier
+      samples_patient (dict): Patient sample data
+      ref_protocol (str): Reference protocol name
+      world_matrix_patient (dict): World transformation matrices
+      pos_patient (dict): Position information
+      label_patient (dict): Label information
+      group (str): Dataset group (Train/Test)
+      mask_d (float): Mask dimension
+      width (int): Output width
+      height (int): Output height
+      density (int): Sampling density
+      out (str): Output directory
+      force (bool): Force overwrite
+      check (bool): Check before overwrite
+      verbose (int, optional): Verbosity level. Defaults to 0
+
+  Raises:
+      Exception: If required data is missing or invalid
+  """
   if verbose == -1: # parallel
     print(f"Starting {patient}")
   used_findings = []
@@ -1314,6 +1502,16 @@ def prostatex_slices(patient, samples_patient, ref_protocol, world_matrix_patien
     print(f"Stopping {patient}")
 
 def save_slice(outdir, fn, data, force, check, verbose):
+  """Save slice data to numpy and PNG files.
+
+  Args:
+      outdir (str): Output directory
+      fn (str): Base filename (without extension)
+      data (numpy.ndarray): Slice data to save
+      force (bool): Force overwrite existing files
+      check (bool): Check for differences before overwriting
+      verbose (int): Verbosity level
+  """
   # Save result
   if not os.path.isdir(outdir):
     os.makedirs(outdir)
@@ -1325,7 +1523,7 @@ def save_slice(outdir, fn, data, force, check, verbose):
       diff = np.linalg.norm(np.subtract(data, old_data), ord=1)
       if diff > 1e-6:
         print(f"Warning: {fn_base} data differs by {diff}")
-        if force == True:
+        if force:
           check_overwrite = True
     except Exception as e:
       print(f"Warning: {fn_base} data is not comparable:\n{e}")

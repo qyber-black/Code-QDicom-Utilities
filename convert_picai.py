@@ -20,23 +20,21 @@
 
 import os
 import argparse
-import glob
 import json
-import math
 import numpy as np
-import sobol_seq
 import SimpleITK as sitk
 import nibabel as nib
 import nibabel.processing as nibp
 import tempfile
 import csv
-from PIL import Image, ImageDraw
-from skimage.draw import polygon, line
-import scipy.ndimage as ndi
-
-from read_dicom_siemens import read_dicom
+from PIL import Image
 
 def main():
+  """Main function to parse arguments and convert PI-CAI data.
+
+  Parses command line arguments and calls conv_picai to convert
+  PI-CAI DICOM data into a numpy-based representation.
+  """
   # Parse arguments
   parser = argparse.ArgumentParser()
   parser.add_argument('-d', '--data', type=str, help='Folder with the dicom files (structure: foldX/PATIENT/DATA.mha')
@@ -52,20 +50,31 @@ def main():
   args = parser.parse_args()
 
   # Check arguments
-  if args.data == None or not os.path.isdir(args.data):
+  if args.data is None or not os.path.isdir(args.data):
     print(f"Dicom folder not specified or is not a directory: {args.data}")
     exit(1)
-  if args.labels == None or not os.path.isdir(args.labels):
+  if args.labels is None or not os.path.isdir(args.labels):
     print(f"Labels folder not specified or is not a directory: {args.labels}")
     exit(1)
-  if args.out == None:
+  if args.out is None:
     print("Dataset folder not specified")
     exit(1)
 
-  conv_picai(args.data, args.labels, args.out, args.all_slices, args.modalities, 
+  conv_picai(args.data, args.labels, args.out, args.all_slices, args.modalities,
              args.verbose, not(args.disable_parallel))
 
 def conv_picai(data, labels, out, all_slices, modalities, verbose=0, parallel=True):
+  """Convert PI-CAI data to numpy-based representation.
+
+  Args:
+      data (str): Path to folder with DICOM files
+      labels (str): Path to folder with label files
+      out (str): Output folder for dataset
+      all_slices (bool): Convert all slices, not only prostate slices
+      modalities (list): List of modalities to convert
+      verbose (int, optional): Verbosity level. Defaults to 0
+      parallel (bool, optional): Execute in parallel. Defaults to True
+  """
   # Convert all patient data
   patients = []
   for fold in sorted(os.listdir(data)): # for each fold
@@ -93,10 +102,25 @@ def conv_picai(data, labels, out, all_slices, modalities, verbose=0, parallel=Tr
       process_patient(data, labels, out, ps, patient_info, all_slices, modalities, verbose)
 
 def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbose=0):
+  """Process a single patient's data.
+
+  Args:
+      data (str): Path to DICOM data folder
+      labels (str): Path to labels folder
+      out (str): Output folder
+      ps (tuple): Patient information (fold, patient_id)
+      pinfo (dict): Patient information dictionary
+      all_slices (bool): Convert all slices or only prostate slices
+      modalities (list): List of modalities to convert
+      verbose (int, optional): Verbosity level. Defaults to 0
+
+  Raises:
+      Exception: If no T2W reference stack is found
+  """
   # Convert patient
   fold = ps[0]
   p = ps[1]
-    
+
   # Load patient stacks as nifti files
   with tempfile.TemporaryDirectory() as tmp: # Temporary folder to store nii conversions
                                              # FIXME: can this be done in memory?
@@ -281,9 +305,19 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
                   XX = ((XX - dmin) / (dmax - dmin))
                 XX *= (2**8-1)
                 Image.fromarray(XX.astype(np.uint8)).save(fn+".png", optimize=True, bits=8)
-          scanid += 1
 
 def get_prostate_slices(labels, p, session, all_slices):
+  """Determine slice range of prostate for a patient/session.
+
+  Args:
+      labels (str): Path to labels folder
+      p (str): Patient ID
+      session (str): Session ID
+      all_slices (bool): If True, return full slice range
+
+  Returns:
+      tuple: (min_slice, max_slice) or (None, None) if no prostate data
+  """
   # Determine slice range of prostate for patient p/session; if all_slices report full slice range
   min_slice = None
   max_slice = None

@@ -35,6 +35,7 @@ sys.path.insert(1, os.path.dirname(os.path.realpath(__file__)))
 from read_dicom_siemens import read_dicom
 
 class colors:
+  """Colors for output."""
   OK   = '\033[92m'
   WARN = '\033[93m'
   FAIL = '\033[91m'
@@ -44,6 +45,10 @@ bitmap_hash = {}
 xxh = xxhash.xxh64()
 
 def main():
+  """Main function for checking dataset structure.
+
+  Parses command line arguments and performs dataset structure validation.
+  """
   # Parse arguments and initial folder scan
 
   # Arguments
@@ -67,6 +72,17 @@ def main():
   exit(check_scans(dir_name, "  ", args.fix, args.verbose))
 
 def check_scans(dir_name, indent, fix, verbose):
+  """Check MRI image scan hierarchy.
+
+  Args:
+      dir_name (str): Directory to check
+      indent (str): Indentation for output
+      fix (bool): Whether to fix issues
+      verbose (int): Verbosity level
+
+  Returns:
+      int: Number of errors found
+  """
   # Check MRI image scan hierarchy
   err = 0
   patients = []
@@ -92,6 +108,17 @@ def check_scans(dir_name, indent, fix, verbose):
   return err
 
 def check_group(dir_name, indent, fix, verbose):
+  """Check patients in MRI scan group hierarchy.
+
+  Args:
+      dir_name (str): Directory to check
+      indent (str): Indentation for output
+      fix (bool): Whether to fix issues
+      verbose (int): Verbosity level
+
+  Returns:
+      int: Number of errors found
+  """
   # Check patients in MRI scan group hierarchy
   err = 0
   patients = []
@@ -122,6 +149,18 @@ def check_group(dir_name, indent, fix, verbose):
   return patients, err
 
 def check_patient(dir_name, patient, indent, fix, verbose):
+  """Check sessions in patient hierarchy.
+
+  Args:
+      dir_name (str): Directory to check
+      patient (str): Patient ID
+      indent (str): Indentation for output
+      fix (bool): Whether to fix issues
+      verbose (int): Verbosity level
+
+  Returns:
+      int: Number of errors found
+  """
   # Check sessions in patient hierarchy
   err = 0
   files = []
@@ -157,8 +196,8 @@ def check_patient(dir_name, patient, indent, fix, verbose):
           subprocess.run(["git", "add", session_path])
         scan_folders = []
         for f in files:
+          fs = f.split(".")
           if len(fs) > 4:
-            fs = f.split(".")
             if fs[2][0:7] == "PELVIS_":
               sf = fs[3]
               f_fix = patient+"-"+new_session_name+"-"+sf+"-"+fs[4]+"."+fs[-1]
@@ -191,6 +230,19 @@ def check_patient(dir_name, patient, indent, fix, verbose):
   return err
 
 def check_session(dir_name, patient, session, indent, fix, verbose):
+  """Check scans in session hierarchy.
+
+  Args:
+      dir_name (str): Directory to check
+      patient (str): Patient ID
+      session (str): Session ID
+      indent (str): Indentation for output
+      fix (bool): Whether to fix issues
+      verbose (int): Verbosity level
+
+  Returns:
+      int: Number of errors found
+  """
   # Check scans in session hierarchy
   err = 0
   ref_rec = {}
@@ -329,6 +381,20 @@ def check_session(dir_name, patient, session, indent, fix, verbose):
   return err
 
 def check_scan(dir_name, patient, session, scan, indent, fix, verbose):
+  """Check dicoms in scan.
+
+  Args:
+      dir_name (str): Directory to check
+      patient (str): Patient ID
+      session (str): Session ID
+      scan (str): Scan ID
+      indent (str): Indentation for output
+      fix (bool): Whether to fix issues
+      verbose (int): Verbosity level
+
+  Returns:
+      tuple: (number of errors, record dictionary)
+  """
   # Check dicoms in scan
   err = 0
   try:
@@ -347,7 +413,7 @@ def check_scan(dir_name, patient, session, scan, indent, fix, verbose):
     elif os.path.isfile(path):
       files.append(fn)
     else:
-      raise Exception("Unknown file type: %s" % fnp)
+      raise Exception("Unknown file type: %s" % fn)
   if len(dirs) > 0:
     err += 1
     print(("%s* %s/%s/%s: " + colors.FAIL + "fail: folders in scan folder" + colors.END)
@@ -418,6 +484,20 @@ def check_scan(dir_name, patient, session, scan, indent, fix, verbose):
   return err, ref_rec
 
 def check_dicoms(dir_name, patient, session, scan, indent, fix, verbose):
+  """Check DICOM files in scan directory.
+
+  Args:
+      dir_name (str): Directory to check
+      patient (str): Patient ID
+      session (str): Session ID
+      scan (str): Scan ID
+      indent (str): Indentation for output
+      fix (bool): Whether to fix issues
+      verbose (int): Verbosity level
+
+  Returns:
+      tuple: (number of errors, record dictionary)
+  """
   err = 0
   dirs = []
   files = []
@@ -429,7 +509,7 @@ def check_dicoms(dir_name, patient, session, scan, indent, fix, verbose):
       if fn[-4:] == ".IMA":
         files.append(fn)
     else:
-      raise Exception("Unknown file type: %s" % fnp)
+      raise Exception("Unknown file type: %s" % fn)
 
   ref_rec = {}
   series_time_col = None
@@ -574,7 +654,13 @@ def check_dicoms(dir_name, patient, session, scan, indent, fix, verbose):
   return err, ref_rec
 
 def check_bitmaps(dir_name, indent, verbose):
-  # Collect bitmaps from files where errors occurred, to find duplicates
+  """Collect bitmaps from files where errors occurred, to find duplicates.
+
+  Args:
+      dir_name (str): Directory to check
+      indent (str): Indentation for output
+      verbose (int): Verbosity level
+  """
   dirs = []
   files = []
   for fn in sorted(os.listdir(dir_name)):
@@ -584,7 +670,7 @@ def check_bitmaps(dir_name, indent, verbose):
     elif os.path.isfile(path):
       files.append(fn)
     else:
-      raise Exception("Unknown file type: %s" % fnp)
+      raise Exception("Unknown file type: %s" % fn)
 
   out_base = indent+"#"+dir_name+"/"
   out_len = 0
