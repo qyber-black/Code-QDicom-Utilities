@@ -3,7 +3,7 @@
 # convert_picai.py - QDicom Utilities
 # Create dataset for deep learning from PI-CAI data.
 #
-# SPDX-FileCopyrightText: Copyright (C) 2023 Frank C Langbein <frank@langbein.org>, Cardiff University
+# SPDX-FileCopyrightText: Copyright (C) 2023, 2026 Frank C Langbein <frank@langbein.org>, Cardiff University
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
 # Usage example:
@@ -28,6 +28,53 @@ import nibabel.processing as nibp
 import tempfile
 import csv
 from PIL import Image
+
+def _slice_npy_needs_write(npy_path, arr):
+  """Return True if .npy is missing or its array differs from arr."""
+  arr = np.asarray(arr)
+  if not os.path.isfile(npy_path):
+    return True
+  try:
+    existing = np.load(npy_path, mmap_mode='r')
+    try:
+      if existing.shape != arr.shape or existing.dtype != arr.dtype:
+        return True
+      # Integer masks must match exactly; float slices may differ slightly after resampling.
+      if np.issubdtype(arr.dtype, np.floating):
+        return not np.allclose(existing, arr, rtol=1e-5, atol=1e-6, equal_nan=True)
+      return not np.array_equal(existing, arr)
+    finally:
+      del existing
+  except Exception:
+    return True
+
+def save_npy_and_png_if_changed(fn_base, arr, png_bit_depth):
+  """Write fn_base.npy and fn_base.png only when .npy content would change.
+
+  Float arrays are compared with allclose (see _slice_npy_needs_write); integer masks use exact equality.
+
+  Args:
+      fn_base (str): Path without .npy / .png suffix.
+      arr (ndarray): 2D slice array to store.
+      png_bit_depth (int): 8 for masks, 16 for modality previews.
+  """
+  npy_path = fn_base + ".npy"
+  png_path = fn_base + ".png"
+  arr = np.asarray(arr)
+  if not _slice_npy_needs_write(npy_path, arr):
+    return
+  np.save(npy_path, arr, allow_pickle=False)
+  XX = arr.astype(np.float32, copy=True)
+  dmax = XX.max()
+  dmin = XX.min()
+  if dmax > dmin:
+    XX = (XX - dmin) / (dmax - dmin)
+  if png_bit_depth == 16:
+    XX *= (2**16 - 1)
+    Image.fromarray(XX.astype(np.uint16)).save(png_path, optimize=True, bits=16)
+  else:
+    XX *= (2**8 - 1)
+    Image.fromarray(XX.astype(np.uint8)).save(png_path, optimize=True, bits=8)
 
 def main():
   """Main function to parse arguments and convert PI-CAI data.
@@ -160,11 +207,16 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
         if verbose > 0:
           print(f"{p}-{session}: no prostate delineation")
         continue # Skip patient/session as no prostate delineation
+      pinfo_key = p + "-" + session
+      if pinfo_key not in pinfo:
+        if verbose > 0:
+          print(f"{p}-{session}: no clinical_information row ({pinfo_key})")
+        continue
       if not os.path.isdir(outdir):
         os.makedirs(outdir)
 
       # Store original patient number and session number in json to link it to PI-CAI data
-      info = pinfo[p+"-"+session]
+      info = pinfo[pinfo_key]
       info['fold'] = fold
       info['session'] =f"{session_num+1:02d}"
       with open(os.path.join(outdir,f"{p}-{session_num+1:02d}.json"),'w') as fo:
@@ -199,23 +251,27 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
           proto_str = proto
         for slice in range(min_slice,max_slice):
           fn = fn_base + f"-{slice:04d}-{proto_str}"
-          XX = np.copy(X[:,:,slice])
-          np.save(fn+".npy", XX, allow_pickle=False)
-          dmax = XX.max()
-          dmin = XX.min()
-          if dmax > dmin:
-            XX = ((XX - dmin) / (dmax - dmin))
-          XX *= (2**16-1)
-          Image.fromarray(XX.astype(np.uint16)).save(fn+".png", optimize=True, bits=16)
+          save_npy_and_png_if_changed(fn, X[:,:,slice], 16)
 
       # Process delineations for patient / session
 
-      # Resampled, human expert csPCa lesion delineations resampled to t2w (so no transf. needed)
-      path = os.path.join(labels, "csPCa_lesion_delineations", "human_expert", "resampled", f"{p}_{session}.nii.gz")
-      if os.path.isfile(path): # If not we do not have data (does not mean negative, but missing data, see PI-CAI doc)
+      # Human expert csPCa lesion delineations on the T2W grid (resampled first; Pooch25 fills gaps where resampled is absent).
+      cspca_dir = os.path.join(labels, "csPCa_lesion_delineations", "human_expert")
+      path_resampled = os.path.join(cspca_dir, "resampled", f"{p}_{session}.nii.gz")
+      path_pooch25 = os.path.join(cspca_dir, "Pooch25", f"{p}_{session}.nii.gz")
+      if os.path.isfile(path_resampled):
+        cspca_path = path_resampled
+        cspca_source = "resampled"
+      elif os.path.isfile(path_pooch25):
+        cspca_path = path_pooch25
+        cspca_source = "Pooch25"
+      else:
+        cspca_path = None
+        cspca_source = None
+      if cspca_path is not None:
         if verbose > 0:
-          print(f"# Patient {fold}/{p} ({session}) -- PCa labels")
-        csPCa = nib.load(path)
+          print(f"# Patient {fold}/{p} ({session}) -- PCa labels ({cspca_source})")
+        csPCa = nib.load(cspca_path)
         X = csPCa.get_fdata().astype(np.uint8)
         if verbose > 0:
           print(f"# Patient {fold}/{p} ({session}) -- PIRADS: {np.unique(X)}")
@@ -223,43 +279,23 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
           if 'pirads' in modalities:
             # PI-RADS rating
             fn = os.path.join(outdir,f"{p}-{session_num+1:02d}-0001-{slice:04d}-pirads")
-            XX = np.copy(X[:,:,slice])
-            np.save(fn+".npy", XX, allow_pickle=False)
-            # PIRADS PNG
-            dmax = XX.max()
-            dmin = XX.min()
-            if dmax > dmin:
-              XX = ((XX - dmin) / (dmax - dmin))
-            XX *= (2**8-1)
-            Image.fromarray(XX.astype(np.uint8)).save(fn+".png", optimize=True, bits=8)
+            save_npy_and_png_if_changed(fn, X[:,:,slice], 8)
           if 'suspicious' in modalities:
             # cs-PCa as suspicious map (it's cs-PCa if PIRADS is 3,4,5; see PI-CAI doc)
             fns = os.path.join(outdir,f"{p}-{session_num+1:02d}-0001-{slice:04d}-suspicious")
             XX = np.copy(X[:,:,slice])
             XX[XX<3] = 0
             XX[XX>2] = 1
-            np.save(fns+".npy", XX, allow_pickle=False)
-            # Suspicious PNG
-            dmax = XX.max()
-            dmin = XX.min()
-            if dmax > dmin:
-              XX = ((XX - dmin) / (dmax - dmin))
-            XX *= (2**8-1)
-            Image.fromarray(XX.astype(np.uint8)).save(fns+".png", optimize=True, bits=8)
+            save_npy_and_png_if_changed(fns, XX, 8)
           if 'normal' in modalities:
             # cs-PCa as normal map (it's cs-PCa if PIRADS is 1,2; see PI-CAI doc)
             fns = os.path.join(outdir,f"{p}-{session_num+1:02d}-0001-{slice:04d}-normal")
             XX = np.copy(X[:,:,slice])
             XX[XX>2] = 0
             XX[XX>0] = 1
-            np.save(fns+".npy", XX, allow_pickle=False)
-            # Suspicious PNG
-            dmax = XX.max()
-            dmin = XX.min()
-            if dmax > dmin:
-              XX = ((XX - dmin) / (dmax - dmin))
-            XX *= (2**8-1)
-            Image.fromarray(XX.astype(np.uint8)).save(fns+".png", optimize=True, bits=8)
+            save_npy_and_png_if_changed(fns, XX, 8)
+      elif verbose > 0 and ('pirads' in modalities or 'suspicious' in modalities or 'normal' in modalities):
+        print(f"# Patient {fold}/{p} ({session}) -- no csPCa delineation (resampled/Pooch25)")
 
       # Anatomical AI delineation for whole gland, for t2w (so no transf. needed)
       if 'prostate' in modalities:
@@ -274,15 +310,7 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
             for slice in range(min_slice,max_slice):
               # Prostate mask
               fn = fn_base + f"-{slice:04d}-prostate:{src}"
-              XX = np.copy(X[:,:,slice])
-              np.save(fn+".npy", XX, allow_pickle=False)
-              # Prostate png
-              dmax = XX.max()
-              dmin = XX.min()
-              if dmax > dmin:
-                XX = ((XX - dmin) / (dmax - dmin))
-              XX *= (2**8-1)
-              Image.fromarray(XX.astype(np.uint8)).save(fn+".png", optimize=True, bits=8)
+              save_npy_and_png_if_changed(fn, X[:,:,slice], 8)
       if 'pztz' in modalities:
         for src in ['HeviAI23', 'Yuan23']:
           if verbose > 0:
@@ -296,15 +324,7 @@ def process_patient(data, labels, out, ps, pinfo, all_slices, modalities, verbos
               if slice < X.shape[-1]: # pztz may have fewer slices
                 # PZTZ mask
                 fn = fn_base + f"-{slice:04d}-pztz:{src}"
-                XX = np.copy(X[:,:,slice])
-                np.save(fn+".npy", XX, allow_pickle=False)
-                # PZTZ png
-                dmax = XX.max()
-                dmin = XX.min()
-                if dmax > dmin:
-                  XX = ((XX - dmin) / (dmax - dmin))
-                XX *= (2**8-1)
-                Image.fromarray(XX.astype(np.uint8)).save(fn+".png", optimize=True, bits=8)
+                save_npy_and_png_if_changed(fn, X[:,:,slice], 8)
 
 def get_prostate_slices(labels, p, session, all_slices):
   """Determine slice range of prostate for a patient/session.
@@ -318,28 +338,36 @@ def get_prostate_slices(labels, p, session, all_slices):
   Returns:
       tuple: (min_slice, max_slice) or (None, None) if no prostate data
   """
-  # Determine slice range of prostate for patient p/session; if all_slices report full slice range
-  min_slice = None
-  max_slice = None
+  # Determine slice range of prostate for patient p/session; if all_slices report full slice range.
+  # Consider both AI whole-gland sources; merge slice spans when both exist.
+  span = None  # (lo, hi) inclusive indices, or None if no mask slice found yet
   for src in ['Bosma22b', 'Guerbet23']:
     path = os.path.join(labels, "anatomical_delineations", "whole_gland", "AI", src, f"{p}_{session}.nii.gz")
-    if os.path.isfile(path): # if not, means we have no data
-      prostate = nib.load(path)
-      X = prostate.get_fdata().astype(np.uint8)
-      if all_slices: # We want all slices anyway
-        return 0, X.shape[-1]
-      if min_slice is None: # Initialise range
-        min_slice = X.shape[-1]
-        max_slice = 0
-      for slice in range(0,X.shape[-1]):
-        cnt = np.unique(X[:,:,slice]).shape[0]
-        if cnt > 1:
-          if slice < min_slice:
-            min_slice = slice
-          if slice > max_slice:
-            max_slice = slice
-    return min_slice, max_slice+1
-  return None, None
+    if not os.path.isfile(path):
+      continue
+    prostate = nib.load(path)
+    X = prostate.get_fdata().astype(np.uint8)
+    if all_slices:
+      return 0, X.shape[-1]
+    v_min = X.shape[-1]
+    v_max = 0
+    for s in range(0, X.shape[-1]):
+      cnt = np.unique(X[:,:,s]).shape[0]
+      if cnt > 1:
+        if s < v_min:
+          v_min = s
+        if s > v_max:
+          v_max = s
+    if v_max >= v_min:
+      if span is None:
+        span = (v_min, v_max)
+      else:
+        lo, hi = span
+        span = (min(lo, v_min), max(hi, v_max))
+  if span is None:
+    return None, None
+  lo, hi = span
+  return lo, hi + 1
 
 if __name__ == '__main__':
   main()

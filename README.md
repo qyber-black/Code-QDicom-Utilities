@@ -1,7 +1,7 @@
 # QDicom Utilities
 
-> SPDX-FileCopyrightText: Copyright (C) 2020-2023 Frank C Langbein <frank@langbein.org>, Cardiff University  
-> SPDX-License-Identifier: AGPL-3.0-or-later  
+> SPDX-FileCopyrightText: Copyright (C) 2020-2023, 2026 Frank C Langbein <frank@langbein.org>, Cardiff University\
+> SPDX-License-Identifier: AGPL-3.0-or-later
 
 A set of utilities to deal with dicom files and data repositories, specifically
 aimed at the qyber archives, but some may be more generally useful or adaptable.
@@ -14,13 +14,12 @@ aimed at the qyber archives, but some may be more generally useful or adaptable.
   * Check and possibly fix file system structure of a dicom dataset.
 * create_dataset.py
   * Creates dataset from dicom repository
-* conv_picai.py
+* convert_picai.py
   * Creates dataset from PI-CAI repositories
 
 See the --help messages and the comments in the files for more information.
 
-See `requirements.txt` for dependencies. It's installable via
-`pip3 install -r requirements.txt`.
+See `requirements.txt` for dependencies. It's installable via `pip3 install -r requirements.txt`.
 
 ## Locations
 
